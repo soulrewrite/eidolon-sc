@@ -601,6 +601,7 @@ def create_app(backend: Backend) -> FastAPI:
                             if event.lang == "ja":
                                 said[event.segment] = said.get(event.segment, "") + event.text
                         if isinstance(event, SegmentComplete):
+                            # fork: 上游没有预合成（`message_speech` 整个模块都是 fork 加的），见 FORK.md。
                             # 这一段她刚说完，先合成好（GLOSSARY.md「消息语音」）：等用户读完
                             # 决定要听，它已经在桶里了。合成不出来就算了，点的时候还会再试。
                             ja = said.pop(event.segment, "")

@@ -1352,6 +1352,7 @@ class Store:
         with self._lock:
             return conversation_id in self._taking_turns
 
+    # fork: 上游没有 `since` 参数（它按 `contact` 判「自上次接触以来搭过话就拒」）。见根目录 FORK.md。
     def add_reach_out(
         self,
         conversation_id: str,

@@ -70,6 +70,7 @@ INTERVALS: dict[Tier, tuple[timedelta, timedelta]] = {
 """How long after the last contact she reaches out, by her tier: the closer, the sooner. None
 in the tiers not here."""
 
+# fork: 下面两个常量上游没有（上游是「搭过一次，用户不回就再也不说」）。见根目录 FORK.md。
 SILENCE: dict[Tier, int] = {"intimate": 3, "close": 2, "trust": 2}
 """How many things she may say into one silence — the user not answering — from her first
 reach-out on, by her tier: the closer, the more. One she must wait to be answered no more
