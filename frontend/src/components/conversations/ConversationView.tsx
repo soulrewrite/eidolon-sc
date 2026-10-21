@@ -197,7 +197,9 @@ export function ConversationView({
   const focus = useFocusBack({ layerOpen: isCovered, noteShown: barShown });
 
   // 页首的图标键：手机上触控目标不小于 44px（DESIGN.md「Layout」）。
-  const headerKey = "max-md:size-11";
+  // 页首这几个键（返回、通话、消息语音、更多）共用：按下去缩一下再回弹，手机上也有反馈。
+  const headerKey =
+    "max-md:size-11 transition-transform duration-150 ease-out motion-safe:active:scale-90 active:bg-accent active:duration-75";
   // 历史对话里拨不出去，通话中也一样（回到通话走通话条）；通话中换成实心的「回到通话」。
   const phone: { tip: string; label: string; disabled?: boolean; onClick?: () => void; filled?: boolean } = viewing
     ? { tip: t.past.callTooltip, label: t.call(character.name), disabled: true }
@@ -787,7 +789,14 @@ function SpeechKey({
     <Button
       variant="ghost"
       size="icon-xs"
-      className="mt-px shrink-0 text-muted-foreground"
+      className={cn(
+        // 按压感：悬停浮一层底、按下去缩一下再回弹，正在放的时候整颗是实心的。
+        "mt-px shrink-0 text-muted-foreground touch-manipulation",
+        "transition-[color,background-color,transform] duration-150 ease-out",
+        "hover:bg-accent hover:text-foreground",
+        "motion-safe:active:scale-90 active:bg-accent active:duration-75",
+        state === "playing" && "bg-accent text-foreground",
+      )}
       aria-label={state === "failed" ? t.speechFailed : state === "playing" ? t.speechStop : t.speech}
       aria-busy={state === "asking"}
       title={t.speechAgain}

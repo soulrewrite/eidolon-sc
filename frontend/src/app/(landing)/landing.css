@@ -641,6 +641,7 @@ html[data-lp-tier="reduced"] .lp-greeting-line {
   background: none;
   color: var(--lp-dim);
   cursor: pointer;
+  transition: transform 0.15s ease-out, color 0.2s ease;
 }
 /* 一个音符：开着是实打实的墨色，关掉以后暗下去，再划一道斜线。 */
 .lp-sound svg {
@@ -674,6 +675,10 @@ html[data-lp-tier="reduced"] .lp-greeting-line {
 .lp-sound:focus-visible {
   outline: 1px solid var(--lp-ink);
   outline-offset: 2px;
+}
+/* 按下去缩一下：落地页上没有别的反馈，这一个音符得自己说明按到了。 */
+.lp-sound:active {
+  transform: scale(0.92);
 }
 
 /* 底部常驻当前的组合名，下面一排按组合跳转的按钮。 */
