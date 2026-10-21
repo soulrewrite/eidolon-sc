@@ -137,6 +137,29 @@ export function ConversationView({
   const [speechOn, setSpeechOn] = useState(true);
   useEffect(() => setSpeechOn(speechSwitchedOn()), []);
 
+  // 她刚说完的那条，先把语音取到内存里：等用户读完、决定要点，音频已经在手上，
+  // 点下去就是即时的（不然还要一次下载，一百多 KB，两百毫秒上下）。
+  const newestSaid = (() => {
+    const said = entries.filter((e) => e.kind === "character" && e.segments.length > 0);
+    const last = said.at(-1);
+    // 还在说的那条先不取：段还在长，这会儿算出来的地址不是最后那句。
+    if (!last || last.kind !== "character" || last.pending) return null;
+    return { key: last.key, reachOut: last.reachOut === true, segments: last.segments.length };
+  })();
+  const newestKey = newestSaid?.key ?? null;
+  const newestCount = newestSaid?.segments ?? 0;
+  const newestReachOut = newestSaid?.reachOut ?? false;
+  useEffect(() => {
+    if (!speechOn || newestKey === null) return;
+    const id = Number(newestKey.slice(1));
+    const kind = newestReachOut ? "reach_out" : "message";
+    speech.preload(
+      Array.from({ length: newestCount }, (_, segment) => ({ kind, id, segment }) as const),
+    );
+    // 只在「最新那条」换了或段数变了时取一次；speech 这个对象每次渲染都是新的，不进依赖。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [speechOn, newestKey, newestCount, newestReachOut]);
+
   // 向外壳要她的对话（外壳里留着她的通话就用那一份，否则打开她最新的一个，从没聊过就开一个新的）；
   // 离开这一页时交回：通话还在进行就留在外壳里，否则就此告别。
   useEffect(() => {

@@ -12,6 +12,8 @@ export type SpeechPlay = {
   toggle: (ref: SpeechRef) => void;
   /** 这一句重新合成一遍再放：合成每次都不一样，听着破音就重摇一次。 */
   again: (ref: SpeechRef) => void;
+  /** 事先把这几句取到内存里：她刚说完的那条，等用户决定要点时，音频已经在手上了。 */
+  preload: (refs: SpeechRef[]) => void;
 };
 
 /** 同一个地址的一串字符，用来认出一句话。 */
@@ -36,6 +38,8 @@ export function useSpeechPlayer(): SpeechPlay {
   const audio = useRef<HTMLAudioElement | null>(null);
   /** 这一页已经问到过的地址，一句话一条。 */
   const known = useRef(new Map<string, string>());
+  /** 事先取到内存里的音频，一句话一条（blob 地址）。 */
+  const held = useRef(new Map<string, string>());
   /** 音频元素现在装的是哪个地址，免得同一句再点一次又去设一遍 src（那会重新拉一遍）。 */
   const loaded = useRef<string | null>(null);
   const failing = useRef<number | null>(null);
@@ -47,6 +51,8 @@ export function useSpeechPlayer(): SpeechPlay {
       audio.current = null;
       loaded.current = null;
       known.current.clear();
+      for (const url of held.current.values()) URL.revokeObjectURL(url);
+      held.current.clear();
       if (failing.current !== null) window.clearTimeout(failing.current);
     };
   }, []);
@@ -92,10 +98,10 @@ export function useSpeechPlayer(): SpeechPlay {
       audio.current?.pause();
       setPlaying(null);
       setFailed(null);
-      // 这一句问过了：不再问后端，也不转圈。
+      // 这一句问过了：不再问后端，也不转圈。事先取到内存里的直接放，不碰网络。
       const asked = known.current.get(key);
       if (asked !== undefined) {
-        void play(key, asked).catch(() => {
+        void play(key, held.current.get(key) ?? asked).catch(() => {
           known.current.delete(key);
           fail(key);
         });
@@ -150,5 +156,25 @@ export function useSpeechPlayer(): SpeechPlay {
     [play, fail],
   );
 
-  return { state, toggle, again };
+  /** 事先取到内存里：地址先问一次，紧接着把音频抓下来做成 blob 地址。 */
+  const preload = useCallback((refs: SpeechRef[]) => {
+    for (const ref of refs) {
+      const key = keyOf(ref);
+      if (held.current.has(key)) continue;
+      void (async () => {
+        try {
+          const url = known.current.get(key) ?? (await speechUrl(ref));
+          known.current.set(key, url);
+          if (held.current.has(key)) return;
+          const res = await fetch(url);
+          if (!res.ok) return;
+          held.current.set(key, URL.createObjectURL(await res.blob()));
+        } catch {
+          // 取不到就算了：点的时候照常问后端、照常下载。
+        }
+      })();
+    }
+  }, []);
+
+  return { state, toggle, again, preload };
 }

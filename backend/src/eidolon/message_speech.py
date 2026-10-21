@@ -23,6 +23,7 @@ import asyncio
 import hashlib
 import json
 import logging
+from collections import OrderedDict
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
@@ -62,10 +63,15 @@ moment later usually goes through; a service refusing outright is not retried by
 VOICE_RETRY = 0.8
 """How long to wait before trying again, in seconds."""
 
-WARM_SEGMENTS = 2
+WRITTEN_KEPT = 4096
+"""How many addresses this process remembers having put in the bucket: enough for
+every segment of a long conversation, few enough that the set stays put."""
+
+WARM_SEGMENTS = 3
 """How many segments may be voiced ahead of anyone asking for them at once: one that has
-just been said while the previous one is still being voiced. Not more, so that a service
-with a handful of concurrent requests to give is not taken up by one reply."""
+just been said while the previous ones are still being voiced. Three covers a reply said
+in three parts in one pass; not more, so that a service with a handful of concurrent
+requests to give is not taken up by one reply."""
 
 NOT_FOUND = "这条消息没有语音"
 
@@ -120,6 +126,10 @@ class MessageSpeech:
         # at most: a user sending several replies in a row must not have them pile up on the
         # service.
         self._warming = asyncio.Semaphore(WARM_SEGMENTS)
+        # 这一进程亲手放上去的地址。内容寻址的地址一旦有了就不会变，所以它们不必再 HEAD
+        # 一次桶 —— 点播放时那一次往返是这个功能里最大的一笔延迟（40–125 ms）。
+        # 只在内存里，重启就空，空着也只是退回去查一次，不会错。
+        self._written: OrderedDict[str, None] = OrderedDict()
 
     async def aclose(self) -> None:
         await self._bucket.aclose()
@@ -132,13 +142,35 @@ class MessageSpeech:
         if spoken is None:
             return None
         try:
-            if not await self._bucket.exists(spoken.path):
+            if not await self._there(spoken.path):
                 audio = await self._voice(spoken.said, spoken.voice_id)
-                await self._bucket.put(spoken.path, audio, "audio/mpeg", SPEECH_CACHE)
+                await self._put(spoken.path, audio)
         except (S3Error, _CouldNotVoice):
             log.warning("the speech of a segment could not be put", exc_info=True)
             return None
         return f"{self._assets_url}/{spoken.path}"
+
+    async def _there(self, path: str) -> bool:
+        """Whether the bucket has what is at `path`: known if this process put it there,
+        asked for otherwise."""
+        if path in self._written:
+            self._written.move_to_end(path)
+            return True
+        if await self._bucket.exists(path):
+            self._remember(path)
+            return True
+        return False
+
+    async def _put(self, path: str, audio: bytes) -> None:
+        await self._bucket.put(path, audio, "audio/mpeg", SPEECH_CACHE)
+        self._remember(path)
+
+    def _remember(self, path: str) -> None:
+        """Note that the bucket has `path`, forgetting the oldest beyond `WRITTEN_KEPT`."""
+        self._written[path] = None
+        self._written.move_to_end(path)
+        while len(self._written) > WRITTEN_KEPT:
+            self._written.popitem(last=False)
 
     async def warm(self, character_id: str, ja: str) -> None:
         """Voice a segment of a reply as it is said, before anyone asks for it: by the time
@@ -159,7 +191,7 @@ class MessageSpeech:
         async with self._warming:
             try:
                 audio = await self._voice(spoken.said, spoken.voice_id)
-                await self._bucket.put(spoken.path, audio, "audio/mpeg", SPEECH_CACHE)
+                await self._put(spoken.path, audio)
             except (S3Error, _CouldNotVoice):
                 log.warning("the speech of a segment could not be voiced again", exc_info=True)
                 return None
