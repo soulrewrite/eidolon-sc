@@ -65,8 +65,27 @@
 
 > **合并上游时要注意**：`Store.add_reach_out` 的签名变了（多了 `since`）。上游如果改了这里，冲突要手工解。
 
-### 4. 落地页的声音开关（视觉改动）
+### 4. 生图换成 TensorArt（WAI Illustrious），提示词放宽
 
+上游演示的部署用硅基流动的 Kolors；Kolors 没在 Danbooru 上训练过，**不认识
+`morino rinze` 这类角色 tag**，只能按外貌 tag 画个“黑发红眼的女孩”，所以照片不是本人。
+
+| 文件 | 改动 |
+|---|---|
+| `backend/src/eidolon/config.py` | `ImageFormat` 多一个 `"tensorart"` |
+| `backend/src/eidolon/image_generation.py` | `_tensorart`：`POST {base}/task` 建任务 → 每 3 秒 `POST {base}/task/query` → 从签名的 outputs 地址取图。认证是 `Echo-Access-Key` 头（不是 Bearer），还必须带浏览器 User-Agent，否则 Cloudflare 403 code 1010；INTEGER 输入要传原生数字，传字符串会 500。`TIME_LIMIT` 90 → 160 秒 |
+| `backend/src/eidolon/photo_prompt.py` | `rating:general` → `rating:sensitive`；新增 `CHARM_TAGS`（beautiful detailed eyes / soft lighting / delicate features）；负面词去掉 `cleavage`，nude/underwear/see-through 这些仍然挡 |
+| `backend/tests/test_image_service.py` | 新增 TensorArt 的建任务/轮询/取图用例 |
+| `backend/tests/test_photos.py`、`test_photo_all_ages.py` | 断言里的提示词尾部同步 |
+
+**这个接口只吃 4 个参数**（prompt / width / height / count）：`negative_prompt`、`seed`、
+`steps`、`cfg` 都传不进去。要全参数得注册 TensorArt 的 Application 走 TAMS API
+（`ap-east-1.tensorart.cloud/v1/jobs`），skills key 调它会 `app not found`。
+
+**服务器必须走代理**：`openapi.tensor.art` 在国内被 DNS 污染（解析到 Facebook 的 IP），
+`.env` 的 `EIDOLON_PROXY_SERVICES` 因此是 `tts,image`。
+
+### 5. 落地页的声音开关（视觉改动）
 | 文件 | 改动 |
 |---|---|
 | `frontend/src/app/(landing)/Spectrum.tsx` | 「声音 开/关」的文字按钮 → 内联音符 SVG（`aria-pressed` 区分开关） |
