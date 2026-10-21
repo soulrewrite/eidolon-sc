@@ -8,12 +8,17 @@ Driven through the backend's external API, the judge model faked and the image s
 faked at its transport, where every request it is sent is seen."""
 
 import asyncio
+import json
 from dataclasses import replace
 
 import httpx
 import pytest
 
+from eidolon import image_generation
 from eidolon.config import ImageSettings, Settings
+from eidolon.image_generation import ImageGenerator
+from eidolon.photo_prompt import check_prompt
+from tests.fakes import png
 from tests.conftest import ClientFactory
 from tests.fakes import (
     FakeIdentityProvider,
@@ -271,3 +276,53 @@ async def test_an_image_card_saved_again_as_it_is_is_not_tried_again(
 
     assert again.status_code == 200, again.text
     assert len(image.requests) == 1
+
+
+async def test_tensorart_builds_a_task_polls_it_and_takes_the_picture(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """TensorArt 的 OpenAPI（`ImageFormat` 的 tensorart）：先建任务，再按 `TENSORART_POLL`
+    问一次，FINISH 之后从它给的地址把图取回来。key 放在 `Echo-Access-Key` 里，还带着一个
+    浏览器 User-Agent（Cloudflare 不认没有 UA 的请求）。"""
+    seen: list[tuple[str, dict, dict]] = []
+    picture = png(832, 1216)
+    answers = {
+        "/openworks/v1/task": {"code": "0", "data": {"task": {"id": "42", "status": "WAITING"}}},
+        "/openworks/v1/task/query": {
+            "code": "0",
+            "data": {"tasks": [{"id": "42", "status": "FINISH",
+                                "outputs": [{"type": "STRING", "value": "https://img.test/a.png"}]}]},
+        },
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "img.test":
+            return httpx.Response(200, content=picture)
+        seen.append((request.url.path, dict(request.headers), json.loads(request.content)))
+        return httpx.Response(200, json=answers[request.url.path])
+
+    settings = ImageSettings(
+        "ak_tensor_test", "https://openapi.tensor.art/openworks/v1",
+        "anime_lab_wai_illustrious", api_format="tensorart",
+    )
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler), trust_env=False)
+    generator = ImageGenerator(settings, client)
+    monkeypatch.setattr(image_generation, "TENSORART_POLL", 0)
+
+    got = await generator.generate(
+        check_prompt(""), asyncio.get_running_loop().time() + 30
+    )
+    await client.aclose()
+
+    assert got.webp.startswith(b"RIFF")
+    [start, poll] = seen
+    path, headers, body = start
+    assert path == "/openworks/v1/task"
+    assert headers["echo-access-key"] == "ak_tensor_test"
+    assert "Mozilla/5.0" in headers["user-agent"]
+    assert body["toolName"] == "anime_lab_wai_illustrious"
+    assert [i["type"] for i in body["inputs"]] == ["STRING", "INTEGER", "INTEGER", "INTEGER"]
+    assert body["inputs"][1]["value"] == 832
+    assert body["inputs"][2]["value"] == 1216
+    assert poll[0] == "/openworks/v1/task/query"
+    assert poll[2] == {"taskIds": ["42"]}

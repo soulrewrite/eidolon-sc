@@ -211,10 +211,12 @@ BAILIAN_REGION_CODES: dict[BailianRegion, str] = {"beijing": "cn-beijing", "sing
 DEFAULT_NOVELAI_BASE_URL = "https://image.novelai.net"
 DEFAULT_NOVELAI_MODEL = "nai-diffusion-5-curated"
 
-ImageFormat = Literal["novelai", "openai"]
+ImageFormat = Literal["novelai", "openai", "tensorart"]
 """How an image service is spoken to (`image_generation`): in NovelAI's own format, as
-NovelAI and the relays passing requests on as they are take it, or in OpenAI's image
-format, as other relays do. Chosen by whoever configures it, never found out."""
+NovelAI and the relays passing requests on as they are take it; in OpenAI's image format,
+as other relays do; or over TensorArt's OpenAPI (「Tensor skills」), where `model` is the
+name of one of its tools (`anime_lab_wai_illustrious` and the like) rather than a model of
+its own. Chosen by whoever configures it, never found out."""
 IMAGE_FORMATS: tuple[ImageFormat, ...] = get_args(ImageFormat)
 MAX_IMAGE_CONCURRENCY = 10
 """The most photos the deployer's image key may be set to generate at a time."""

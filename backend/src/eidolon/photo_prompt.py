@@ -19,7 +19,7 @@ crossing it. Neither the deployer nor any user changes the table.
 
 The positive prompt is fixed around them: who she is (her character tag and the work's
 tag), the deployment's art style, written in as the deployer wrote it (weights, artists
-and all; none if empty), her looks, the tags for how the photo is taken, `rating:general` and V5's standard
+and all; none if empty), her looks, the tags for how the photo is taken, `rating:sensitive` and V5's standard
 quality tags, written out rather than left to the service's switch. The negative prompt is
 fixed altogether: `nsfw`, the Human Focus preset, and what no photo of hers shows
 (ADR-0023). Neither the deployer nor any user changes them.
@@ -37,19 +37,25 @@ from eidolon.characters import Character
 log = logging.getLogger(__name__)
 
 WORK_TAG = "idolmaster shiny colors"
-QUALITY_TAGS = ("rating:general", "very aesthetic", "masterpiece", "no text")
-"""What every positive prompt ends with: all ages, then V5's standard quality tags."""
+QUALITY_TAGS = ("rating:sensitive", "very aesthetic", "masterpiece", "no text")
+"""What every positive prompt ends with: `rating:sensitive`（Danbooru 的「有点意思但不露」那一档，
+比 general 多给一点肌肤和表情，仍然不是 nude）, then V5's standard quality tags."""
+
+CHARM_TAGS = ("beautiful detailed eyes", "soft lighting", "delicate features")
+"""How every photo is made to look: 只影响光与眼，不碰身体。写进去是为了让她的照片更像画册里那张，
+而不是证件照。"""
 
 NEGATIVE_PROMPT = ", ".join((
+    # fork: 个人部署，负面词放到「不裸」为止（去掉 cleavage）；上游是全年龄更严的一套，见 FORK.md。
     "nsfw",
     # The Human Focus preset: the Heavy one, with what goes wrong with faces.
     "lowres", "artistic error", "film grain", "scan artifacts", "worst quality", "bad quality",
     "jpeg artifacts", "very displeasing", "chromatic aberration", "dithering", "halftone",
     "screentone", "multiple views", "logo", "too many watermarks", "negative space",
     "blank page", "@_@", "mismatched pupils", "glowing eyes", "bad anatomy",
-    # All ages (ADR-0023).
+    # 不裸（ADR-0023 的底线留着）。
     "nude", "nipples", "underwear", "bra", "panties", "bra strap", "strap slip", "see-through",
-    "pantyshot", "cleavage",
+    "pantyshot",
 ))
 
 Shot = Literal["selfie", "other"]
@@ -137,7 +143,7 @@ def image_prompt(character: Character, tag: PhotoTag, style: str = "") -> ImageP
     positive = (
         "1girl", "solo", character.photo_tag, WORK_TAG, *_styled(style),
         character.photo_appearance, *_shot_tags(tag.shot), tag.framing, *tag.place,
-        *tag.outfit, *action, *QUALITY_TAGS,
+        *tag.outfit, *action, *CHARM_TAGS, *QUALITY_TAGS,
     )
     return ImagePrompt(", ".join(positive), NEGATIVE_PROMPT)
 
@@ -147,7 +153,7 @@ def check_prompt(style: str = "") -> ImagePrompt:
     art style `style`, otherwise as any photo is."""
     positive = (
         "1girl", "solo", *_styled(style), "upper body", "indoors", "smile", LOOKING_AT_VIEWER,
-        *QUALITY_TAGS,
+        *CHARM_TAGS, *QUALITY_TAGS,
     )
     return ImagePrompt(", ".join(positive), NEGATIVE_PROMPT)
 

@@ -168,13 +168,13 @@ action: sitting, smile
         await settled(client, photo["id"])
 
     head = "1girl, solo, sakuragi mano, idolmaster shiny colors, brown hair, medium hair, brown eyes"
-    tail = "rating:general, very aesthetic, masterpiece, no text"
+    tail = "beautiful detailed eyes, soft lighting, delicate features, rating:sensitive, very aesthetic, masterpiece, no text"
     negative = (
         "nsfw, lowres, artistic error, film grain, scan artifacts, worst quality, bad quality,"
         " jpeg artifacts, very displeasing, chromatic aberration, dithering, halftone,"
         " screentone, multiple views, logo, too many watermarks, negative space, blank page,"
         " @_@, mismatched pupils, glowing eyes, bad anatomy, nude, nipples, underwear, bra,"
-        " panties, bra strap, strap slip, see-through, pantyshot, cleavage"
+        " panties, bra strap, strap slip, see-through, pantyshot"
     )
     [first, second] = image.requests
     assert first["body"]["input"] == (

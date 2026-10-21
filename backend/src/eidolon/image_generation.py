@@ -9,7 +9,14 @@ Ancestral, from a random seed, in the shape of V4's prompts and later. In OpenAI
 format: `POST {base_url}/images/generations`, the address up to `/v1`, asking at the top
 level for one picture of that size with the negative prompt, as base64 (`b64_json`, with
 a `data:` prefix or without); one answered with a URL instead is downloaded on the same
-client, in the same time. An answer in any other shape, a chat completion's among them,
+client, in the same time. In TensorArt's OpenAPI (「Tensor skills」): `POST {base_url}/task` naming one of its
+tools (`anime_lab_wai_illustrious` and the like, `settings.model`) with the prompt and the
+size, answered with a task's id, then `POST {base_url}/task/query` every `TENSORART_POLL`
+seconds until the task is `FINISH`, then the picture downloaded from the address it gives
+(one that expires within the hour, so it is taken at once). Its tools take neither a
+negative prompt nor a seed nor the steps: what `ImagePrompt.negative` says is not sent.
+
+An answer in any other shape, a chat completion's among them,
 is not a picture. None of it is anyone's to set. What comes back is checked: exactly one
 picture, 832×1216. It is kept as WebP, its size as it is, every bit of metadata dropped,
 the prompt the PNG carries among it. Only the server calls the service; browsers never do.
@@ -44,13 +51,24 @@ WEBP_QUALITY = 85
 MAX_SEED = 4294967295 - 7
 """The largest seed NovelAI takes."""
 
-TIME_LIMIT = 90
-"""The longest a photo may take in all, in seconds, waiting its turn included."""
+TIME_LIMIT = 160
+"""The longest a photo may take in all, in seconds, waiting its turn included. A queue of
+TensorArt's free tier at its busiest runs past a minute before the picture is begun."""
 GENERATION_TIMEOUT = httpx.Timeout(TIME_LIMIT, connect=10)
 
 Failure = Literal["timeout", "service_error", "bad_image"]
 """Why a picture could not be had: the service took too long, answered with an error or
 could not be reached, or answered with what is not one picture of the size asked for."""
+
+TENSORART_POLL = 3
+"""How often, in seconds, TensorArt is asked how a task is coming along."""
+
+TENSORART_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+    " (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+)
+"""What TensorArt's OpenAPI is asked with: the Cloudflare in front of it refuses a request
+without a browser's own (403, code 1010)."""
 
 
 class ImageFailed(Exception):
@@ -121,6 +139,8 @@ class ImageGenerator:
             async with asyncio.timeout_at(until):
                 if self.settings.api_format == "openai":
                     picture = await self._openai(prompt)
+                elif self.settings.api_format == "tensorart":
+                    picture = await self._tensorart(prompt)
                 else:
                     picture = await self._novelai(prompt)
         except (TimeoutError, httpx.TimeoutException) as e:
@@ -165,6 +185,77 @@ class ImageGenerator:
         if len(data) != 1:
             raise _bad_image(f"返回了 {len(data)} 张图")
         return picture
+
+    async def _tensorart(self, prompt: ImagePrompt) -> bytes:
+        """Over TensorArt's OpenAPI: a task with one of its tools, `settings.model`, then
+        asking how it is coming along until it is done, then the picture itself from the
+        address it answers with. Its tools take the prompt and the size alone — no
+        negative prompt, no seed, no steps — so `prompt.negative` is not sent."""
+        task_id = await self._tensorart_task(prompt)
+        url = await self._tensorart_wait(task_id)
+        picture = await self._client.get(url)
+        _check_status(picture)
+        bill("images", 1)
+        return picture.content
+
+    async def _tensorart_task(self, prompt: ImagePrompt) -> str:
+        """Start one picture for `prompt`; its task's id."""
+        res = await self._client.post(
+            f"{self.settings.base_url}/task",
+            json={
+                "toolName": self.settings.model,
+                "inputs": [
+                    {"type": "STRING", "value": prompt.positive},
+                    # Numbers, not the strings the definition writes them as: sent as
+                    # strings the service answers 500 saying the width is null.
+                    {"type": "INTEGER", "value": WIDTH},
+                    {"type": "INTEGER", "value": HEIGHT},
+                    {"type": "INTEGER", "value": 1},
+                ],
+            },
+            headers=self._tensorart_auth(),
+        )
+        _check_status(res)
+        try:
+            body = res.json()
+            task = body["data"]["task"]
+            task_id = task["id"]
+        except (ValueError, KeyError, TypeError):
+            raise _bad_image(f"不是 TensorArt 建任务的返回：{res.text[:200]}") from None
+        return str(task_id)
+
+    async def _tensorart_wait(self, task_id: str) -> str:
+        """Where the picture of `task_id` is, once the service is done with it; asked for
+        every `TENSORART_POLL` seconds, as long as the turn is given."""
+        while True:
+            await asyncio.sleep(TENSORART_POLL)
+            res = await self._client.post(
+                f"{self.settings.base_url}/task/query",
+                json={"taskIds": [task_id]},
+                headers=self._tensorart_auth(),
+            )
+            _check_status(res)
+            try:
+                task = res.json()["data"]["tasks"][0]
+                status = task["status"]
+            except (ValueError, KeyError, IndexError, TypeError):
+                raise _bad_image(f"不是 TensorArt 查任务的返回：{res.text[:200]}") from None
+            if status == "FINISH":
+                outputs = task.get("outputs") or []
+                if not outputs:
+                    raise _bad_image("任务说完成了，却没有图")
+                return str(outputs[0]["value"])
+            if status in ("EXCEPTION", "CANCELED"):
+                raise ImageFailed("service_error", f"TensorArt 的任务 {status}：{task}")
+
+    def _tensorart_auth(self) -> dict[str, str]:
+        """TensorArt 的 key 放在 `Echo-Access-Key` 里（不是 Bearer）；它前面的
+        Cloudflare 又不认没有 User-Agent 的请求（回 403 code 1010），所以一个浏览器的
+        User-Agent 一并带上。"""
+        return {
+            "Echo-Access-Key": self.settings.api_key,
+            "User-Agent": TENSORART_USER_AGENT,
+        }
 
     async def _picture(self, item: dict) -> bytes:
         """The picture one item of OpenAI's image format's `data` gives: decoded, or
