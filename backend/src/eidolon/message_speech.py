@@ -30,11 +30,12 @@ import httpx
 from fastapi import FastAPI, HTTPException
 
 from eidolon.characters import Character
-from eidolon.config import FishAudioModel, Settings
+from eidolon.config import FishAudioModel
 from eidolon.delivery_cues import spoken_by, voiced
 from eidolon.greetings import FishAudioSettings
 from eidolon.proxy import ProxyRoutes
 from eidolon.readings import Reading, pronunciation_dictionary
+from eidolon.reply_format import Segment
 from eidolon.s3 import Bucket, S3Error, S3Settings
 from eidolon.sessions import UserId
 from eidolon.store import Store
@@ -61,6 +62,12 @@ moment later usually goes through; a service refusing outright is not retried by
 
 VOICE_RETRY = 0.8
 """How long to wait before trying again, in seconds."""
+
+WARM_SEGMENTS = 3
+"""How many of a reply's segments are voiced ahead of anyone asking for them, after a turn
+is recorded: the ones the user is about to listen to, so that the first click plays at
+once rather than waiting for the service. Not the whole reply on the off chance it is
+long, and nothing of older replies: what is never asked for is never paid for."""
 
 NOT_FOUND = "这条消息没有语音"
 
@@ -102,6 +109,7 @@ class MessageSpeech:
         fish: FishAudioSettings,
         settings: S3Settings,
         routes: ProxyRoutes,
+        assets_url: str,
     ) -> None:
         self._characters = characters
         self._readings = readings
@@ -109,11 +117,15 @@ class MessageSpeech:
         self._fish = fish
         self._routes = routes
         self._bucket = Bucket(settings)
+        self._assets_url = assets_url.rstrip("/")
+        # One reply is voiced at a time ahead of anyone asking: a user sending several in a
+        # row must not have their segments pile up on the service.
+        self._warming = asyncio.Semaphore(1)
 
     async def aclose(self) -> None:
         await self._bucket.aclose()
 
-    async def url_of(self, character_id: str, ja: str, assets_url: str) -> str | None:
+    async def url_of(self, character_id: str, ja: str) -> str | None:
         """Where the segment's speech is heard from: the bucket's address of it, voiced
         and put first if the bucket does not have it yet; None if she has no voice to say
         it in, or it cannot be voiced or put (said why in the log)."""
@@ -127,7 +139,20 @@ class MessageSpeech:
         except (S3Error, _CouldNotVoice):
             log.warning("the speech of a segment could not be put", exc_info=True)
             return None
-        return f"{assets_url}/{spoken.path}"
+        return f"{self._assets_url}/{spoken.path}"
+
+    async def warm(self, character_id: str, segments: Sequence[Segment]) -> None:
+        """Voice the first `WARM_SEGMENTS` segments of a reply just recorded, so that the
+        user's click plays at once. One that cannot be voiced ends it: the rest are left to
+        when they are asked for, which tries afresh anyway."""
+        async with self._warming:
+            for segment in segments[:WARM_SEGMENTS]:
+                ja = segment.ja
+                if not ja.strip():
+                    continue
+                if await self.url_of(character_id, ja) is None:
+                    log.info("a reply's speech could not be voiced ahead of time")
+                    return
 
     def _spoken(self, character_id: str, ja: str) -> _Spoken | None:
         character = self._characters.get(character_id)
@@ -194,7 +219,7 @@ class _CouldNotVoice(RuntimeError):
 
 
 def add_message_speech_routes(
-    app: FastAPI, store: Store, settings: Settings, speech: MessageSpeech
+    app: FastAPI, store: Store, speech: MessageSpeech
 ) -> None:
     """`/api/messages/{id}/speech?segment={n}`: where segment `n` of her reply is heard
     from, as `{"url": ...}` in the bucket, voiced first if the bucket does not have it
@@ -227,10 +252,7 @@ def add_message_speech_routes(
         ja = segments[segment].get("ja") or ""
         if not ja.strip():
             raise HTTPException(404, NOT_FOUND)
-        assets_url = (settings.stand_assets_url or "").rstrip("/")
-        if not assets_url:
-            raise HTTPException(503, "没有配置立绘素材地址，语音放不出来")
-        url = await speech.url_of(character_id, ja, assets_url)
+        url = await speech.url_of(character_id, ja)
         if url is None:
             raise HTTPException(503, UNAVAILABLE)
         return {"url": url}

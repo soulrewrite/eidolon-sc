@@ -25,7 +25,7 @@ from eidolon.call import (
     SessionDescription,
 )
 from eidolon.characters import Character, ScriptedLine, in_idol_order
-from eidolon.engine import ENDED, TurnJudged, shown
+from eidolon.engine import ENDED, TurnDone, TurnJudged, shown
 from eidolon.greetings import (
     LANDING_MEMORY_STILL_PATH,
     call_opener_path,
@@ -60,7 +60,7 @@ from eidolon.sponsor_api import add_sponsor_routes
 from eidolon.stats import add_stats_routes
 from eidolon.service_status import add_service_status_routes
 from eidolon.stand_outfits import list_path, outfit_path
-from eidolon.store import Conversation, ConversationEvent, IsCurrent, ReachOut, Recorded
+from eidolon.store import Conversation, ConversationEvent, IsCurrent, Message, ReachOut, Recorded
 from eidolon.throttle import Throttled
 from eidolon.turn_outcome import TurnOutcome
 from eidolon.usage import OverLimit
@@ -364,7 +364,7 @@ def create_app(backend: Backend) -> FastAPI:
     add_gift_routes(app, backend)
     add_photo_routes(app, backend)
     if backend.message_speech is not None:
-        add_message_speech_routes(app, backend.store, backend.settings, backend.message_speech)
+        add_message_speech_routes(app, backend.store, backend.message_speech)
     add_sponsor_routes(app, backend)
     add_data_package_routes(app, backend)
     add_stats_routes(app, backend)
@@ -587,6 +587,7 @@ def create_app(backend: Backend) -> FastAPI:
         async def events() -> AsyncIterator[str]:
             # Closed as the response is, so that the turn is no longer under way once the user
             # has gone (`Store.taking_turn`).
+            replied: Message | None = None
             with outcome.running():
                 async with aclosing(engine.turn(
                     conversation, body.text, admission.llms, device_timezone,
@@ -594,11 +595,19 @@ def create_app(backend: Backend) -> FastAPI:
                 )) as turn:
                     async for event in turn:
                         outcome.see(event)
+                        if isinstance(event, TurnDone):
+                            replied = event.message
                         if isinstance(event, SegmentDelta):
                             outcome.began_speaking()  # the reply's first words have appeared
                         if isinstance(event, SegmentComplete | SpeechDelta | TurnJudged):
                             continue
                         yield _sse(shown(event))
+            # 一轮说完，先把她这几句合成好（GLOSSARY.md「消息语音」）：用户点的时候马上出声，
+            # 也不用赶在这会儿的网络上。合成不出来就算了，点的时候还会再试一次。
+            if replied is not None and backend.message_speech is not None:
+                asyncio.get_running_loop().create_task(
+                    backend.message_speech.warm(conversation.character_id, replied.segments)
+                )
 
         return _TurnResponse(events(), lambda: outcome.over(cut_short_by_failure=False))
 

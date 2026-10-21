@@ -375,7 +375,7 @@ def build(
         try:
             message_speech = MessageSpeech(
                 characters, readings, FishAudioSettings.from_env(),
-                S3Settings.from_env(purpose="消息语音"), routes,
+                S3Settings.from_env(purpose="消息语音"), routes, settings.stand_assets_url,
             )
         except RuntimeError as e:
             log.warning("消息语音关掉了：%s", e)
