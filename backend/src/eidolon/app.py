@@ -588,7 +588,12 @@ def create_app(backend: Backend) -> FastAPI:
             # Closed as the response is, so that the turn is no longer under way once the user
             # has gone (`Store.taking_turn`).
             loop = asyncio.get_running_loop()
-            said: dict[int, str] = {}
+            # fork: 预合成用的必须是**念的**那份（`SpeechDelta`，带 delivery cue），
+            # 不是给人看的那份（`SegmentDelta`，cue 已去掉）。用错了哈希就对不上，
+            # 合成出来的东西点播放时找不到，等于白花一次。
+            spoken: dict[int, str] = {}
+            # 后台合成的任务要留住引用：asyncio 只对任务持弱引用，不存着可能跑到一半被回收。
+            warming: set[asyncio.Task[None]] = set()
             with outcome.running():
                 async with aclosing(engine.turn(
                     conversation, body.text, admission.llms, device_timezone,
@@ -598,19 +603,22 @@ def create_app(backend: Backend) -> FastAPI:
                         outcome.see(event)
                         if isinstance(event, SegmentDelta):
                             outcome.began_speaking()  # the reply's first words have appeared
-                            if event.lang == "ja":
-                                said[event.segment] = said.get(event.segment, "") + event.text
+                        if isinstance(event, SpeechDelta):
+                            spoken[event.segment] = spoken.get(event.segment, "") + event.text
+                            continue
                         if isinstance(event, SegmentComplete):
                             # fork: 上游没有预合成（`message_speech` 整个模块都是 fork 加的），见 FORK.md。
                             # 这一段她刚说完，先合成好（GLOSSARY.md「消息语音」）：等用户读完
                             # 决定要听，它已经在桶里了。合成不出来就算了，点的时候还会再试。
-                            ja = said.pop(event.segment, "")
+                            ja = spoken.pop(event.segment, "")
                             if ja.strip() and backend.message_speech is not None:
-                                loop.create_task(
+                                task = loop.create_task(
                                     backend.message_speech.warm(conversation.character_id, ja)
                                 )
+                                warming.add(task)
+                                task.add_done_callback(warming.discard)
                             continue
-                        if isinstance(event, SpeechDelta | TurnJudged):
+                        if isinstance(event, TurnJudged):
                             continue
                         yield _sse(shown(event))
 
