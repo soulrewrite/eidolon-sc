@@ -19,6 +19,7 @@ against no one's limit, as with greetings (a user's own key is not used: bringin
 a text turn does not bring it to listening).
 """
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -52,6 +53,14 @@ _TIMEOUT = httpx.Timeout(60, connect=10)
 """A segment is a few seconds of audio, voiced in a few seconds more."""
 
 _HASH_LENGTH = 12
+
+VOICE_ATTEMPTS = 3
+"""How many times a segment is tried before it is given up on. A proxy dropping one
+connection is common enough (a node going away mid-handshake) that the next attempt a
+moment later usually goes through; a service refusing outright is not retried by it."""
+
+VOICE_RETRY = 0.8
+"""How long to wait before trying again, in seconds."""
 
 NOT_FOUND = "这条消息没有语音"
 
@@ -134,7 +143,20 @@ class MessageSpeech:
 
     async def _voice(self, said: str, voice_id: str) -> bytes:
         """`said` in her voice as mp3, over the proxy or direct as the settings have it
-        for the tts service."""
+        for the tts service. Tried `VOICE_ATTEMPTS` times: the proxy losing a connection
+        is momentary, and the next one usually goes through."""
+        for attempt in range(1, VOICE_ATTEMPTS + 1):
+            try:
+                return await self._voice_once(said, voice_id)
+            except _CouldNotVoice as e:
+                if not e.retryable or attempt == VOICE_ATTEMPTS:
+                    raise
+                log.info("语音合成第 %d 次没成，等一下再试", attempt)
+                await asyncio.sleep(VOICE_RETRY)
+        raise AssertionError("unreachable")
+
+    async def _voice_once(self, said: str, voice_id: str) -> bytes:
+        """`said` in her voice as mp3, once."""
         body: dict[str, object] = {"text": said, "reference_id": voice_id, "format": "mp3"}
         if self._dictionary is not None:
             body["pronunciation_dictionary"] = self._dictionary
@@ -150,14 +172,25 @@ class MessageSpeech:
         finally:
             await client.aclose()
         if response.is_error:
-            raise _CouldNotVoice(f"语音合成没能合成：{response.status_code} {response.text[:200]}")
+            raise _CouldNotVoice(
+                f"语音合成没能合成：{response.status_code} {response.text[:200]}",
+                retryable=response.status_code >= 500,
+            )
         if not response.content:
             raise _CouldNotVoice("语音合成没有返回音频")
         return response.content
 
 
 class _CouldNotVoice(RuntimeError):
-    """A segment could not be voiced: the service unreachable, refusing, or silent."""
+    """A segment could not be voiced: the service unreachable, refusing, or silent.
+
+    `retryable` says whether trying again at once is worth it: a connection lost on the
+    way, or the service's own 5xx, may well go through the next time; a key refused or a
+    request it will not take will not."""
+
+    def __init__(self, message: str, *, retryable: bool = True) -> None:
+        super().__init__(message)
+        self.retryable = retryable
 
 
 def add_message_speech_routes(
