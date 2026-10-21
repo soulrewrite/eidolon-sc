@@ -148,6 +148,23 @@ class MessageSpeech:
         async with self._warming:
             await self.url_of(character_id, ja)
 
+    async def again(self, character_id: str, ja: str) -> str | None:
+        """Voice the segment afresh and overwrite what the bucket has, for a take that came
+        out broken: Fish Audio answers a little differently every time, so the same words
+        can come out again. `None` if she has no voice for it, or it cannot be voiced or
+        put — the bucket keeping the take it had."""
+        spoken = self._spoken(character_id, ja)
+        if spoken is None:
+            return None
+        async with self._warming:
+            try:
+                audio = await self._voice(spoken.said, spoken.voice_id)
+                await self._bucket.put(spoken.path, audio, "audio/mpeg", SPEECH_CACHE)
+            except (S3Error, _CouldNotVoice):
+                log.warning("the speech of a segment could not be voiced again", exc_info=True)
+                return None
+        return f"{self._assets_url}/{spoken.path}"
+
     def _spoken(self, character_id: str, ja: str) -> _Spoken | None:
         character = self._characters.get(character_id)
         if character is None:
@@ -221,7 +238,9 @@ def add_message_speech_routes(
     admins too, there is no such message (404). A segment that never made it (the reply
     cut short), one of her replies whose character has no voice, and one that cannot be
     voiced or put are all 503 with what to say about it, the browser falling back to
-    text."""
+    text. `POST .../speech/again?segment={n}` voices it afresh, overwriting what the
+    bucket has: Fish Audio answers a little differently every time, so a take that came
+    out broken can be had again."""
 
     @app.get("/api/messages/{message_id}/speech")
     async def message_speech(message_id: int, user_id: UserId, segment: int = 0) -> dict:
@@ -236,6 +255,40 @@ def add_message_speech_routes(
         if found is None:
             raise HTTPException(404, NOT_FOUND)
         return await _where(found, segment)
+
+    @app.post("/api/messages/{message_id}/speech/again")
+    async def message_speech_again(
+        message_id: int, user_id: UserId, segment: int = 0
+    ) -> dict:
+        """这一句重新合成一遍，覆盖桶里那份（`MessageSpeech.again`）：合成是随机的，
+        听出破音就来一次。"""
+        found = store.message_segments(message_id, user_id)
+        if found is None:
+            raise HTTPException(404, NOT_FOUND)
+        return await _again(found, segment)
+
+    @app.post("/api/reach-outs/{reach_out_id}/speech/again")
+    async def reach_out_speech_again(
+        reach_out_id: int, user_id: UserId, segment: int = 0
+    ) -> dict:
+        found = store.reach_out_segments(reach_out_id, user_id)
+        if found is None:
+            raise HTTPException(404, NOT_FOUND)
+        return await _again(found, segment)
+
+    async def _again(found: tuple[str, str], segment: int) -> dict:
+        """What segment `segment` of `found` now sounds like, voiced afresh."""
+        character_id, segments_json = found
+        segments = json.loads(segments_json or "[]")
+        if not 0 <= segment < len(segments):
+            raise HTTPException(404, NOT_FOUND)
+        ja = segments[segment].get("ja") or ""
+        if not ja.strip():
+            raise HTTPException(404, NOT_FOUND)
+        url = await speech.again(character_id, ja)
+        if url is None:
+            raise HTTPException(503, UNAVAILABLE)
+        return {"url": url}
 
     async def _where(found: tuple[str, str], segment: int) -> dict:
         """Where segment `segment` of what she said, `found`, is heard from."""

@@ -722,7 +722,11 @@ function Bubbled({
                     <div key={i} className="flex items-start gap-1.5">
                       {/* 播放键：只在开关开着、这一句真的有日语的时候出现，读屏器念「听这一句」。 */}
                       {speechOn && segment.ja.trim() !== "" && (
-                        <SpeechKey state={speech.state(refOf(i))} onClick={() => speech.toggle(refOf(i))} />
+                        <SpeechKey
+                          state={speech.state(refOf(i))}
+                          onClick={() => speech.toggle(refOf(i))}
+                          onAgain={() => speech.again(refOf(i))}
+                        />
                       )}
                       <div className="flex min-w-0 flex-col gap-0.5">
                         <p className="text-japanese-line">
@@ -744,13 +748,16 @@ function Bubbled({
 }
 
 /** 气泡里一句话前面的播放键：没在放是播放，在放是暂停，等着合成是转圈，放不出来是斜杠那一刻的提示。
- * 它比气泡的字小一号，不抢她的话；手机上按不到 44px 也不碍事，旁边整句都能点（见下面 Bubble 的 onClick）。 */
+ * 它比气泡的字小一号，不抢她的话；手机上按不到 44px 也不碍事，旁边整句都能点（见下面 Bubble 的 onClick）。
+ * 右键（或长按）重新合成这一句：合成每次都不一样，听着破音就重摇一次。 */
 function SpeechKey({
   state,
   onClick,
+  onAgain,
 }: {
   state: "idle" | "asking" | "playing" | "failed";
   onClick: () => void;
+  onAgain: () => void;
 }) {
   const Icon = state === "playing" ? SpeechPauseIcon : SpeechPlayIcon;
   return (
@@ -760,7 +767,12 @@ function SpeechKey({
       className="mt-px shrink-0 text-muted-foreground"
       aria-label={state === "failed" ? t.speechFailed : state === "playing" ? t.speechStop : t.speech}
       aria-busy={state === "asking"}
+      title={t.speechAgain}
       onClick={onClick}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        onAgain();
+      }}
     >
       {state === "asking" ? (
         <Spinner />

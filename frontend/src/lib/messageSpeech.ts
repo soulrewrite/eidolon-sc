@@ -17,6 +17,16 @@ export async function speechUrl(ref: SpeechRef): Promise<string> {
   return (await json<{ url: string }>(await api(path))).url;
 }
 
+/** 这一句重新合成一遍，覆盖桶里那份，返回新的地址。
+ * 合成每次都不一样，听到破音就重摇一次。 */
+export async function respeak(ref: SpeechRef): Promise<string> {
+  const path =
+    ref.kind === "message"
+      ? `/api/messages/${ref.id}/speech/again?segment=${ref.segment}`
+      : `/api/reach-outs/${ref.id}/speech/again?segment=${ref.segment}`;
+  return (await json<{ url: string }>(await api(path, { method: "POST" }))).url;
+}
+
 /** 消息语音开着没有，记在本机：默认开着，关掉以后气泡上不出现播放键，也不会有声音。
  * 这是每台设备自己的选择（和通话的音质那些不一样，那些跟着账号走）。 */
 const SWITCH = "eidolon.messageSpeech";

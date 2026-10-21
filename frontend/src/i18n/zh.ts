@@ -179,6 +179,8 @@ export const zh = {
     speech: "听这一句",
     speechStop: "停下",
     speechFailed: "这句放不出来",
+    /** 播放键的右键（长按）动作：合成每次都不一样，听着破音就重摇一次。 */
+    speechAgain: "右键重新生成这一句",
     speechOn: {
       on: "打开消息语音",
       off: "关掉消息语音",

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { speechUrl, type SpeechRef } from "@/lib/messageSpeech";
+import { speechUrl, respeak, type SpeechRef } from "@/lib/messageSpeech";
 
 /** 一句话在这台页面上的处境：没在放、正在问地址或合成（`asking`）、在放、这次没放出来（`failed`）。 */
 export type SpeechPlay = {
@@ -10,6 +10,8 @@ export type SpeechPlay = {
   state: (ref: SpeechRef) => "idle" | "asking" | "playing" | "failed";
   /** 放这句话；正在放同一句就停下来。 */
   toggle: (ref: SpeechRef) => void;
+  /** 这一句重新合成一遍再放：合成每次都不一样，听着破音就重摇一次。 */
+  again: (ref: SpeechRef) => void;
 };
 
 /** 同一个地址的一串字符，用来认出一句话。 */
@@ -93,5 +95,32 @@ export function useSpeechPlayer(): SpeechPlay {
     [asking, playing, failed],
   );
 
-  return { state, toggle };
+  // 重新合成并放。地址和原来一样（同一句话同一个地址），桶上那份被覆盖了，
+  // 所以带一个时间戳绕开浏览器和 CDN 的缓存 —— 它们把这份当成 immutable 存着。
+  const again = useCallback((ref: SpeechRef) => {
+    const key = keyOf(ref);
+    audio.current?.pause();
+    setPlaying(null);
+    setFailed(null);
+    setAsking(key);
+    void (async () => {
+      try {
+        const url = await respeak(ref);
+        if (!audio.current) audio.current = new Audio();
+        const element = audio.current;
+        element.src = `${url}?r=${Date.now()}`;
+        element.onended = () => setPlaying((now) => (now === key ? null : now));
+        await element.play();
+        setAsking((now) => (now === key ? null : now));
+        setPlaying(key);
+      } catch {
+        setAsking((now) => (now === key ? null : now));
+        setFailed(key);
+        if (failing.current !== null) window.clearTimeout(failing.current);
+        failing.current = window.setTimeout(() => setFailed((now) => (now === key ? null : now)), 2000);
+      }
+    })();
+  }, []);
+
+  return { state, toggle, again };
 }
