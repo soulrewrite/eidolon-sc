@@ -233,9 +233,36 @@ def connected_call(database: Path, conversation: str, at: datetime, seconds: flo
         )
 
 
+async def test_she_says_one_more_thing_into_a_silence_and_then_stops(
+    make_client: ClientFactory, settings: Settings
+):
+    """用户一直不回，她除了第一句还能再补一句（信任档两句），补完就停，不再一个人往下说。"""
+    client, _, clock, conversation = await talked(
+        make_client, REACH_OUT, REACH_OUT, REACH_OUT, random=FakeRandom(MIDDLE, MIDDLE, MIDDLE)
+    )
+    last_contact(settings.database_path, conversation, clock.now - timedelta(hours=28))
+    reach_out = backend_of(client).reach_outs
+    await reach_out.run_due()
+    assert len(reach_outs(await record(client, conversation))) == 1
+
+    # 第二句来得比第一句的档位快：信任档 28 小时的六分之一，不到五小时。
+    clock.advance(hours=30)
+    await reach_out.run_due()
+    assert len(reach_outs(await record(client, conversation))) == 2
+
+    # 两句说满了：再等多久也不再一个人说下去。
+    clock.advance(hours=30)
+    await reach_out.run_due()
+    assert len(reach_outs(await record(client, conversation))) == 2
+
+
 async def test_she_waits_for_the_user_to_answer_before_she_comes_again(
     make_client: ClientFactory, settings: Settings
 ):
+    """用户没回的时候，她可以说到她的档位允许的那么多句，再多就要等用户回了 —— 回合算回，接通的通话也算。
+    每次回答以后重新算她还能说几句（信任档两句）。"""
+    """用户没回的时候，她可以说到她的档位允许的那么多句（信任档两句），再多就要等用户回了 ——
+    回合算回，接通的通话也算。"""
     client, llm, clock, conversation = await talked(
         make_client, REACH_OUT, REPLY, REACH_OUT, REACH_OUT,
         random=FakeRandom(0, 0, 0),
@@ -248,6 +275,7 @@ async def test_she_waits_for_the_user_to_answer_before_she_comes_again(
     clock.advance(hours=30)  # unanswered, and a gift is no answer
     write_event(database, conversation, "gift", clock.now)
     await reach_out.run_due()
+    # 一直没人回：第一句之后她又补了一句，两句说满就停。
     unanswered = len(reach_outs(await record(client, conversation)))
 
     await send_turn(client, conversation, "我回来了")  # answered by a turn
@@ -257,10 +285,16 @@ async def test_she_waits_for_the_user_to_answer_before_she_comes_again(
 
     connected_call(database, conversation, clock.now - timedelta(hours=21), 3600)  # by a call
     await reach_out.run_due()
-    after_a_call = len(reach_outs(await record(client, conversation)))
+    # 这一轮已经说过一句：同一个 contact 里她说满了，再开口要等下一轮回答。
+    still_waiting = len(reach_outs(await record(client, conversation)))
 
-    assert (unanswered, after_a_turn, after_a_call) == (1, 2, 3)
-    assert len(llm.prompts) == 5  # the turns' two, and three reach-outs
+    # 过了她第二句的间隔也不再一个人往下说：信任档两句，说满了就停。
+    clock.advance(hours=5)
+    await reach_out.run_due()
+    after_waiting = len(reach_outs(await record(client, conversation)))
+
+    assert (unanswered, after_a_turn, still_waiting, after_waiting) == (2, 3, 3, 3)
+    assert len(llm.prompts) == 6  # 回合的三次，搭话的第三次
 
 
 async def test_she_reaches_out_only_in_her_current_conversation_once_it_has_a_turn(

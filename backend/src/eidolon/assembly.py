@@ -39,6 +39,7 @@ from eidolon.call import Calls, Speech, SpeechServices
 from eidolon.characters import Character, load_characters
 from eidolon.gift_catalog import Gift, check_liked_gifts, gifts_path, load_gift_catalog
 from eidolon.gifts import Gifts
+from eidolon.greetings import FishAudioSettings
 from eidolon.happenings import Happenings
 from eidolon.hot_words import hot_words
 from eidolon.randomness import Random, secure_random
@@ -51,6 +52,7 @@ from eidolon.identity import IdentityProvider, ProviderName, open_identity_provi
 from eidolon.image_generation import GENERATION_TIMEOUT
 from eidolon.live_config import LiveConfig, Reach
 from eidolon.memory import Memories
+from eidolon.message_speech import MessageSpeech
 from eidolon.price_catalog import Catalog
 from eidolon.prices import Prices
 from eidolon.own_keys import LLMService, OwnImageService, OwnKeys, ProviderLLMService
@@ -67,6 +69,7 @@ from eidolon.rerank import (
     thresholds_for,
 )
 from eidolon.retrieval import Retrieval, open_reference_sources
+from eidolon.s3 import S3Settings
 from eidolon.service_clients import ProviderClients, ServiceClients
 from eidolon.service_status import ServiceStatus, probes
 from eidolon.sponsor import Sponsor
@@ -128,6 +131,10 @@ class Backend:
     """Exports users' data packages, and imports them."""
     reach_outs: ReachOuts
     """Has characters reach out to users once their time comes."""
+    message_speech: MessageSpeech | None = None
+    """What she says in a reply, voiced for the browser to play a segment at a time; None
+    where the deployer has no stands' bucket to keep it in, or no Fish Audio key to voice
+    it with, the text then being all there is."""
     world: World | None = None
     """The world setting; None without its data file."""
     _closers: list[Closer] = field(default_factory=list, repr=False)
@@ -360,6 +367,20 @@ def build(
         calls.in_call, clock, random or secure_random,
     )
     closers.append(reach_outs.close)
+    # Her replies' speech, for the browser to play a segment at a time without a call: it
+    # needs somewhere to keep the audio (the stands' bucket) and a voice to say it in, and
+    # is off without either, the text then being all there is.
+    message_speech: MessageSpeech | None = None
+    if settings.stand_assets_url:
+        try:
+            message_speech = MessageSpeech(
+                characters, readings, FishAudioSettings.from_env(),
+                S3Settings.from_env(purpose="消息语音"), routes,
+            )
+        except RuntimeError as e:
+            log.warning("消息语音关掉了：%s", e)
+        else:
+            closers.append(message_speech.aclose)
     config.on_change(gifts.notice)
     return Backend(
         settings=settings,
@@ -392,6 +413,7 @@ def build(
             settings.database_path, store, memories, characters, gift_catalog, clock
         ),
         reach_outs=reach_outs,
+        message_speech=message_speech,
         world=world,
         _closers=closers,
     )

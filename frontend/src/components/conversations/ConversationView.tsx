@@ -42,6 +42,7 @@ import type { Entry } from "@/lib/conversationLog";
 import type { Failure } from "@/lib/failure";
 import { giftsHref } from "@/lib/gifts";
 import { isLive, NOT_OPEN, type LiveConversation } from "@/lib/liveConversation";
+import { speechSwitchedOn, switchSpeech, type SpeechRef } from "@/lib/messageSpeech";
 import { linesOf, type Line } from "@/lib/messageLines";
 import { pastDay } from "@/lib/pastConversations";
 import { photosUsedUpText } from "@/lib/photoFailure";
@@ -59,6 +60,10 @@ import {
   PhoneIcon,
   PhotosUsedUpIcon,
   SendIcon,
+  SpeechOffIcon,
+  SpeechOnIcon,
+  SpeechPauseIcon,
+  SpeechPlayIcon,
 } from "@/theme/icons";
 import { Ja } from "@/theme/Ja";
 
@@ -73,6 +78,7 @@ import { useDirectory, useWide } from "./ConversationDirectory";
 import { useFocusBack } from "./useFocusBack";
 import { usePastConversation, type Viewing } from "./usePastConversation";
 import { useProducerTimezone } from "./useProducerTimezone";
+import { useSpeechPlayer, type SpeechPlay } from "./useSpeechPlayer";
 import { useStandOutfits } from "./useStandOutfits";
 
 const t = copy.conversation;
@@ -125,6 +131,11 @@ export function ConversationView({
   const { affinity, affinityCue, cooling, ended } = snapshot;
   // 解除时刻按制作人的时区写成今天或明天。
   const timeZone = useProducerTimezone();
+  // 消息语音（GLOSSARY.md「消息语音」）：气泡上每句日语前一个播放键，点一下她就说那一句。
+  // 开关记在这台设备上，默认开着；水合之前读不到，所以第一屏先按开着渲染，挂上以后再校正。
+  const speech = useSpeechPlayer();
+  const [speechOn, setSpeechOn] = useState(true);
+  useEffect(() => setSpeechOn(speechSwitchedOn()), []);
 
   // 向外壳要她的对话（外壳里留着她的通话就用那一份，否则打开她最新的一个，从没聊过就开一个新的）；
   // 离开这一页时交回：通话还在进行就留在外壳里，否则就此告别。
@@ -152,8 +163,7 @@ export function ConversationView({
   const startNew = () => {
     if (viewing) backToCurrent();
     void live?.startNewConversation();
-  };
-  const inCall = isLive(call);
+  };  const inCall = isLive(call);
   // 要在这次点击里同步调用：她的声音趁这一下唤醒 AudioContext。
   const dial = () => void live?.startCall();
 
@@ -208,6 +218,27 @@ export function ConversationView({
           <p className="truncate text-meta text-muted-foreground">{t.past.heading(pastDay(viewing.at, new Date()))}</p>
         )}
       </div>
+      {/* 消息语音的开关：开着的时候气泡上才有播放键。只影响这台设备，也只在有立绘素材和音色时才有意义。 */}
+      <HeaderTip label={speechOn ? t.speechOn.off : t.speechOn.on}>
+        <Button
+          variant="ghost"
+          size="icon-lg"
+          className={headerKey}
+          aria-label={speechOn ? t.speechOn.off : t.speechOn.on}
+          aria-pressed={speechOn}
+          onClick={() => {
+            const next = !speechOn;
+            setSpeechOn(next);
+            switchSpeech(next);
+          }}
+        >
+          {speechOn ? (
+            <SpeechOnIcon className="size-5 text-her-mark" />
+          ) : (
+            <SpeechOffIcon className="size-5 text-muted-foreground" />
+          )}
+        </Button>
+      </HeaderTip>
       {phoneKey}
       {affinity && (
         <AffinityBadge
@@ -362,6 +393,8 @@ export function ConversationView({
               character={character}
               affinityOn={affinity !== null}
               timeZone={timeZone}
+              speech={speech}
+              speechOn={speechOn}
             />
           ) : viewing.status === "failed" ? (
             <Empty className="h-full">
@@ -395,6 +428,8 @@ export function ConversationView({
             character={character}
             affinityOn={affinity !== null}
             timeZone={timeZone}
+            speech={speech}
+            speechOn={speechOn}
           />
         )}
       </div>
@@ -542,12 +577,16 @@ function Messages({
   character,
   affinityOn,
   timeZone,
+  speech,
+  speechOn,
 }: {
   entries: Entry[];
   hearing: string;
   character: Character;
   affinityOn: boolean;
   timeZone: string;
+  speech: SpeechPlay;
+  speechOn: boolean;
 }) {
   const lines = linesOf(entries, new Date(), affinityOn);
   return (
@@ -584,7 +623,7 @@ function Messages({
                 </MessageScrollerItem>
               ) : (
                 <MessageScrollerItem key={line.entry.key} messageId={line.entry.key} className={cn(line.first && "mt-2")}>
-                  <Bubbled line={line} entry={line.entry} character={character} />
+                  <Bubbled line={line} entry={line.entry} character={character} speech={speech} speechOn={speechOn} />
                 </MessageScrollerItem>
               ),
             )}
@@ -631,10 +670,14 @@ function Bubbled({
   line: { first, last },
   entry,
   character,
+  speech,
+  speechOn,
 }: {
   line: Extract<Line, { kind: "entry" }>;
   entry: Exclude<Entry, { kind: "event" }>;
   character: Character;
+  speech: SpeechPlay;
+  speechOn: boolean;
 }) {
   const time = <time className="shrink-0 pb-0.5 text-meta text-muted-foreground tabular-nums">{clock(entry.at)}</time>;
   if (entry.kind === "user") {
@@ -651,6 +694,13 @@ function Bubbled({
       </Message>
     );
   }
+  // 这一条是哪一件事：消息和搭话分开存，各有一套标识符（GLOSSARY.md「消息语音」）。
+  const id = Number(entry.key.slice(1));
+  const refOf = (segment: number): SpeechRef => ({
+    kind: entry.reachOut ? "reach_out" : "message",
+    id,
+    segment,
+  });
   return (
     <Message align="start">
       {first ? (
@@ -669,11 +719,17 @@ function Bubbled({
               ) : (
                 <div className="flex flex-col gap-2">
                   {entry.segments.map((segment, i) => (
-                    <div key={i} className="flex flex-col gap-0.5">
-                      <p className="text-japanese-line">
-                        <Ja>{segment.ja}</Ja>
-                      </p>
-                      {segment.zh && <p className="text-subtitle text-muted-foreground">{segment.zh}</p>}
+                    <div key={i} className="flex items-start gap-1.5">
+                      {/* 播放键：只在开关开着、这一句真的有日语的时候出现，读屏器念「听这一句」。 */}
+                      {speechOn && segment.ja.trim() !== "" && (
+                        <SpeechKey state={speech.state(refOf(i))} onClick={() => speech.toggle(refOf(i))} />
+                      )}
+                      <div className="flex min-w-0 flex-col gap-0.5">
+                        <p className="text-japanese-line">
+                          <Ja>{segment.ja}</Ja>
+                        </p>
+                        {segment.zh && <p className="text-subtitle text-muted-foreground">{segment.zh}</p>}
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -684,6 +740,34 @@ function Bubbled({
         </div>
       </MessageContent>
     </Message>
+  );
+}
+
+/** 气泡里一句话前面的播放键：没在放是播放，在放是暂停，等着合成是转圈，放不出来是斜杠那一刻的提示。
+ * 它比气泡的字小一号，不抢她的话；手机上按不到 44px 也不碍事，旁边整句都能点（见下面 Bubble 的 onClick）。 */
+function SpeechKey({
+  state,
+  onClick,
+}: {
+  state: "idle" | "asking" | "playing" | "failed";
+  onClick: () => void;
+}) {
+  const Icon = state === "playing" ? SpeechPauseIcon : SpeechPlayIcon;
+  return (
+    <Button
+      variant="ghost"
+      size="icon-xs"
+      className="mt-px shrink-0 text-muted-foreground"
+      aria-label={state === "failed" ? t.speechFailed : state === "playing" ? t.speechStop : t.speech}
+      aria-busy={state === "asking"}
+      onClick={onClick}
+    >
+      {state === "asking" ? (
+        <Spinner />
+      ) : (
+        <Icon aria-hidden className={cn(state === "playing" && "fill-current")} />
+      )}
+    </Button>
   );
 }
 

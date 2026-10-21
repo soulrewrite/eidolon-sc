@@ -174,6 +174,15 @@ export const zh = {
     emptyTitle: (name: string) => `和${name}打个招呼吧`,
     emptyDescription: "打字，或者点右上角的电话和她通话。",
     replying: (name: string) => `${name}正在回复`,
+    /** 消息语音（GLOSSARY.md「消息语音」）：气泡里每句日语前的播放键，和对话页首那个开关。
+     * 读屏器念的也是这几句。 */
+    speech: "听这一句",
+    speechStop: "停下",
+    speechFailed: "这句放不出来",
+    speechOn: {
+      on: "打开消息语音",
+      off: "关掉消息语音",
+    },
     /** 对话事件（GLOSSARY.md「对话事件」）给用户看的一句话：消息区的分隔线和列表的「最后一句」都用它。 */
     events: {
       hung_up: (name: string) => `${name}挂断了电话`,

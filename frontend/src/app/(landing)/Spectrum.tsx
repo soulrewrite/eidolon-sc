@@ -223,9 +223,30 @@ export function Spectrum({ units, copy }: { units: SpectrumUnit[]; copy: Spectru
       {header &&
         state.sound !== "hidden" &&
         createPortal(
-          <button type="button" className="lp-sound" aria-pressed={state.sound === "on"} onClick={() => dispatch({ type: "sound" })}>
-            {copy.sound}
-            <span aria-hidden> {state.sound === "on" ? copy.soundOn : copy.soundOff}</span>
+          // 声音开关：一个音符（开）或者划掉它的音符（关）。落地页不做文字按钮，音符自己说明；
+          // 读屏器念的是「声音关」「声音开」，点一下换一边。
+          <button
+            type="button"
+            className="lp-sound"
+            aria-pressed={state.sound === "on"}
+            aria-label={`${copy.sound}${state.sound === "on" ? copy.soundOff : copy.soundOn}`}
+            title={`${copy.sound}${state.sound === "on" ? copy.soundOff : copy.soundOn}`}
+            onClick={() => dispatch({ type: "sound" })}
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.6"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+              focusable="false"
+            >
+              <path d="M9 18V5l12-2v13" />
+              <circle cx="6" cy="18" r="3" />
+              <circle cx="18" cy="16" r="3" />
+            </svg>
           </button>,
           header,
         )}

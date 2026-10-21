@@ -631,21 +631,45 @@ html[data-lp-tier="reduced"] .lp-greeting-line {
 /* 声音开关：第一次听到招呼以后出现在右上角最左边、仓库链接和入口的前面（Spectrum 用 portal 放进 .lp-top），之后一直在。 */
 .lp-sound {
   order: -1;
+  display: grid;
+  place-items: center;
+  min-width: 32px;
   min-height: 32px;
   padding: 0 8px;
   border: 0;
   border-radius: 2px;
   background: none;
-  font: 12px var(--lp-zh);
-  letter-spacing: 0.1em;
   color: var(--lp-dim);
   cursor: pointer;
+}
+/* 一个音符：开着是实打实的墨色，关掉以后暗下去，再划一道斜线。 */
+.lp-sound svg {
+  display: block;
+  width: 16px;
+  height: 16px;
 }
 .lp-sound[aria-pressed="true"] {
   color: var(--lp-ink);
 }
+.lp-sound[aria-pressed="false"] svg {
+  opacity: 0.5;
+}
+.lp-sound[aria-pressed="false"] {
+  position: relative;
+}
+.lp-sound[aria-pressed="false"]::after {
+  content: "";
+  position: absolute;
+  width: 18px;
+  height: 1px;
+  background: currentColor;
+  transform: rotate(-45deg);
+}
 .lp-sound:hover {
   color: var(--lp-ink);
+}
+.lp-sound:hover[aria-pressed="false"] svg {
+  opacity: 0.85;
 }
 .lp-sound:focus-visible {
   outline: 1px solid var(--lp-ink);

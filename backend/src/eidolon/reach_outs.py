@@ -49,7 +49,7 @@ from eidolon.clock import Clock
 from eidolon.database import connect
 from eidolon.engine import ConversationEngine
 from eidolon.live_config import LiveConfig
-from eidolon.producer import effective_timezone
+from eidolon.producer import effective_timezone, is_birthday
 from eidolon.randomness import Random
 from eidolon.store import Conversation, CurrentConversation, ReachOutRefused, Store
 from eidolon.usage import UsageLimiter
@@ -69,6 +69,16 @@ INTERVALS: dict[Tier, tuple[timedelta, timedelta]] = {
 }
 """How long after the last contact she reaches out, by her tier: the closer, the sooner. None
 in the tiers not here."""
+
+SILENCE: dict[Tier, int] = {"intimate": 3, "close": 2, "trust": 2}
+"""How many things she may say into one silence — the user not answering — from her first
+reach-out on, by her tier: the closer, the more. One she must wait to be answered no more
+than that, so that reaching out never turns into talking to herself."""
+
+FOLLOW_UP = 6
+"""How much sooner each word into a silence comes than the first: a sixth of `INTERVALS`,
+a sixth of her tier's range apart, so that a second word comes while the user may still be
+there rather than a whole day later."""
 
 PLACES = 1000
 """How many places in a tier's range her time may be drawn at, evenly apart; and in the
@@ -221,8 +231,6 @@ class ReachOuts:
             return None
         if now - contact > WINDOW:
             return None
-        if current.reached_out_at is not None and current.reached_out_at >= contact:
-            return None
         limits = self._usage.user_limits(conversation.user_id)
         if limits is not None and limits.turns_per_hour == 0:
             return None
@@ -231,10 +239,27 @@ class ReachOuts:
         tier = self._tier(conversation)
         if tier is None:
             return None
-        place, morning, due = self._schedule(conversation.id, contact)
-        if due is None:
-            due = contact + self._interval(tier, place)
         zone = ZoneInfo(effective_timezone(self._store.get_profile(conversation.user_id), None))
+        # How many things she has said into this silence: none yet, or the user has answered
+        # since the last one. Past what her tier allows, she waits to be answered.
+        into_silence = self._count_since(conversation.id, contact, current.reached_out_at)
+        if into_silence >= SILENCE[tier]:
+            return None
+        place, morning, due = self._schedule(conversation.id, contact)
+        if into_silence == 0:
+            if due is None:  # no time put off for it: her tier's range, at its place
+                due = contact + self._interval(tier, place)
+        else:
+            # Another word into a silence: sooner than the first, from when she last said
+            # something, so that it comes while the user may still be there. Never the time
+            # put off for the first, which may already have gone by.
+            after = current.reached_out_at or contact
+            due = after + self._interval(tier, place) / FOLLOW_UP
+        # Her birthday is today and she has not said anything in it yet: this comes first,
+        # whatever her tier's range says, so that the day is not missed by a few hours. The
+        # night still comes first: said in the morning, not at three.
+        if self._birthday_waiting(conversation.user_id, zone, now, current.reached_out_at):
+            due = min(due, now)
         if _at_night(due, zone):
             night = due
         elif due <= now and _at_night(now, zone):
@@ -253,6 +278,34 @@ class ReachOuts:
             self._put_off(conversation.id, contact, now + self._interval(tier))
             return None
         return _Due(conversation, contact, tier, due, zone)
+
+    def _count_since(
+        self, conversation_id: str, contact: datetime, reached_out_at: datetime | None
+    ) -> int:
+        """How many things she has said in the conversation since the last contact: none
+        where she has not reached out since it."""
+        if reached_out_at is None or reached_out_at < contact:
+            return 0
+        return len(self._store.reach_outs_since(conversation_id, contact))
+
+    def _birthday_waiting(
+        self,
+        user_id: str,
+        zone: ZoneInfo,
+        now: datetime,
+        reached_out_at: datetime | None,
+    ) -> bool:
+        """Whether it is the producer's birthday today where they are and she has not
+        reached out in it yet — said nothing, or only yesterday."""
+        profile = self._store.get_profile(user_id)
+        if profile is None or profile.birthday is None:
+            return False
+        today = now.astimezone(zone).date()
+        if not is_birthday(profile.birthday, today):
+            return False
+        if reached_out_at is None:
+            return True
+        return reached_out_at.astimezone(zone).date() != today
 
     def _within_the_day(self, due: _Due, now: datetime) -> bool:
         """Whether the user may be reached out to once more today; if not, her time is put
@@ -359,7 +412,7 @@ class ReachOuts:
             lease.release()
         try:
             reach_out = await asyncio.to_thread(
-                self._store.add_reach_out, conversation.id, said, contact, self._in_call
+                self._store.add_reach_out, conversation.id, said, contact, self._in_call, now
             )
         except ReachOutRefused:  # they were in touch meanwhile
             recording.finish("rejected")

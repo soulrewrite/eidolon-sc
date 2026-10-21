@@ -156,6 +156,12 @@ class Bucket:
         """Delete an object; one the bucket does not have is no error."""
         await self._send("DELETE", self._url(key))
 
+    async def exists(self, key: str) -> bool:
+        """Whether the bucket has the object at `key`, asked for in one request rather
+        than by listing; one it does not have is no error."""
+        response = await self._send("HEAD", self._url(key), allowed={404})
+        return response.status_code == 200
+
     async def aclose(self) -> None:
         await self._client.aclose()
 
@@ -174,7 +180,10 @@ class Bucket:
         url: httpx.URL,
         headers: Mapping[str, str] | None = None,
         body: bytes | Path = b"",
+        allowed: frozenset[int] | set[int] = frozenset(),
     ) -> httpx.Response:
+        """`method` to `url` as the bucket takes it; a response whose status is in
+        `allowed` is returned rather than raised for, for the caller to tell apart."""
         headers = dict(headers or {})
         settings = self._settings
         if isinstance(body, Path):
@@ -193,7 +202,7 @@ class Bucket:
             response = await self._client.request(method, url, headers=headers, content=content)
         except httpx.HTTPError as e:
             raise S3Error(f"连不上存储桶 {settings.endpoint}：{e!r}") from None
-        if response.is_success:
+        if response.is_success or response.status_code in allowed:
             return response
         raise S3Error(f"存储桶拒绝了 {method} {url.path}：{response.status_code} {_error_of(response)}")
 

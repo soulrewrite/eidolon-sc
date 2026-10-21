@@ -1106,6 +1106,45 @@ class Store:
             )
         return cursor.rowcount
 
+    def message_segments(self, message_id: int, user_id: str) -> tuple[str, str] | None:
+        """The character's reply's character and its segments as recorded, `(character_id,
+        segments_json)`, if the message is one of her replies in one of the user's
+        conversations; None if there is none such (the user's own words are not a reply,
+        and neither is anyone else's)."""
+        with self._lock:
+            row = self._db.execute(
+                "SELECT c.character_id, m.segments FROM messages m"
+                " JOIN conversations c ON c.id = m.conversation_id"
+                " WHERE m.id = ? AND c.user_id = ? AND m.role = 'character'",
+                (message_id, user_id),
+            ).fetchone()
+        return (row["character_id"], row["segments"]) if row else None
+
+    def reach_outs_since(self, conversation_id: str, since: datetime) -> list[datetime]:
+        """When she reached out in the conversation from `since` on, oldest first: how many
+        things she has said into a silence (`reach_outs`)."""
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT created_at FROM reach_outs WHERE conversation_id = ? AND created_at >= ?"
+                " ORDER BY created_at",
+                (conversation_id, since.isoformat()),
+            ).fetchall()
+        return [_at(row["created_at"]) for row in rows]
+
+    def reach_out_segments(self, reach_out_id: int, user_id: str) -> tuple[str, str] | None:
+        """What she said in a reach-out (GLOSSARY.md「搭话」), `(character_id,
+        segments_json)`, if it is in one of the user's conversations; None if there is none
+        such. A reach-out is kept apart from the messages, so it has an identifier of its
+        own."""
+        with self._lock:
+            row = self._db.execute(
+                "SELECT c.character_id, r.segments FROM reach_outs r"
+                " JOIN conversations c ON c.id = r.conversation_id"
+                " WHERE r.id = ? AND c.user_id = ?",
+                (reach_out_id, user_id),
+            ).fetchone()
+        return (row["character_id"], row["segments"]) if row else None
+
     def photo(self, photo_id: str, user_id: str) -> Photo | None:
         """The photo, if it is in one of the user's conversations; None if not."""
         with self._lock:
@@ -1319,12 +1358,16 @@ class Store:
         said: list[Segment],
         contact: datetime,
         in_call: Callable[[str], bool],
+        since: datetime,
     ) -> ReachOut:
         """Record what she said first in the conversation, now, as she thought it after the
         user and she were last in touch at `contact`; not seen yet. Looked at again as it is
         recorded, it is not, `ReachOutRefused`, unless the conversation is still her current
-        one, not ended, last in touch at `contact`, without a reach-out since, and without a
-        text turn under way or a call, as `in_call` says."""
+        one, not ended, last in touch at `contact`, without a reach-out since `since` (one
+        going on at the same moment as this, from another tick or another server), and
+        without a text turn under way or a call, as `in_call` says. She may say more than
+        one thing into the same silence: how many is the reach-outs' to decide, so a
+        reach-out after the last contact is no refusal by itself."""
         created_at = _now()
         ja, zh = "".join(s.ja for s in said), "".join(s.zh for s in said)
         with self._lock, self._db:
@@ -1342,7 +1385,7 @@ class Store:
                 current is None or current["id"] != conversation_id
                 or self._ended(conversation_id) is not None
                 or self._last_contact_in(conversation_id) != contact
-                or (reached_out_at is not None and _at(reached_out_at) >= contact)
+                or (reached_out_at is not None and _at(reached_out_at) >= since)
                 or conversation_id in self._taking_turns or in_call(conversation_id)
             ):
                 raise ReachOutRefused()
