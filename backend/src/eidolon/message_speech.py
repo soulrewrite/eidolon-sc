@@ -35,7 +35,6 @@ from eidolon.delivery_cues import spoken_by, voiced
 from eidolon.greetings import FishAudioSettings
 from eidolon.proxy import ProxyRoutes
 from eidolon.readings import Reading, pronunciation_dictionary
-from eidolon.reply_format import Segment
 from eidolon.s3 import Bucket, S3Error, S3Settings
 from eidolon.sessions import UserId
 from eidolon.store import Store
@@ -63,11 +62,10 @@ moment later usually goes through; a service refusing outright is not retried by
 VOICE_RETRY = 0.8
 """How long to wait before trying again, in seconds."""
 
-WARM_SEGMENTS = 3
-"""How many of a reply's segments are voiced ahead of anyone asking for them, after a turn
-is recorded: the ones the user is about to listen to, so that the first click plays at
-once rather than waiting for the service. Not the whole reply on the off chance it is
-long, and nothing of older replies: what is never asked for is never paid for."""
+WARM_SEGMENTS = 2
+"""How many segments may be voiced ahead of anyone asking for them at once: one that has
+just been said while the previous one is still being voiced. Not more, so that a service
+with a handful of concurrent requests to give is not taken up by one reply."""
 
 NOT_FOUND = "这条消息没有语音"
 
@@ -118,9 +116,10 @@ class MessageSpeech:
         self._routes = routes
         self._bucket = Bucket(settings)
         self._assets_url = assets_url.rstrip("/")
-        # One reply is voiced at a time ahead of anyone asking: a user sending several in a
-        # row must not have their segments pile up on the service.
-        self._warming = asyncio.Semaphore(1)
+        # A segment just said is voiced while the next one is being written, two at a time
+        # at most: a user sending several replies in a row must not have them pile up on the
+        # service.
+        self._warming = asyncio.Semaphore(WARM_SEGMENTS)
 
     async def aclose(self) -> None:
         await self._bucket.aclose()
@@ -141,18 +140,13 @@ class MessageSpeech:
             return None
         return f"{self._assets_url}/{spoken.path}"
 
-    async def warm(self, character_id: str, segments: Sequence[Segment]) -> None:
-        """Voice the first `WARM_SEGMENTS` segments of a reply just recorded, so that the
-        user's click plays at once. One that cannot be voiced ends it: the rest are left to
-        when they are asked for, which tries afresh anyway."""
+    async def warm(self, character_id: str, ja: str) -> None:
+        """Voice a segment of a reply as it is said, before anyone asks for it: by the time
+        the user has read it and decided to listen, it is in the bucket and the click plays
+        at once. One that cannot be voiced is left to when it is asked for, which tries
+        afresh anyway."""
         async with self._warming:
-            for segment in segments[:WARM_SEGMENTS]:
-                ja = segment.ja
-                if not ja.strip():
-                    continue
-                if await self.url_of(character_id, ja) is None:
-                    log.info("a reply's speech could not be voiced ahead of time")
-                    return
+            await self.url_of(character_id, ja)
 
     def _spoken(self, character_id: str, ja: str) -> _Spoken | None:
         character = self._characters.get(character_id)
