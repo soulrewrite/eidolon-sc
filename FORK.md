@@ -95,6 +95,25 @@
 （`frontend/src/app/(landing)/fonts/`）不用重新生成。以后如果要改这里的文案，记得跑
 `node scripts/landing-fonts.mts`，否则 `fonts/coverage.test.ts` 会挂。
 
+
+## 数据库备份（本 fork 自己的做法）
+
+上游的 `deploy/db-backup.sh` 走 age 加密 + S3 兼容桶（ADR-0012），这台机器没有配桶，
+所以另写了一个更简单的，每天凌晨 4 点跑：
+
+```sh
+# 服务器上：/home/ubuntu/eidolon-db-backup.sh（仓库里是 deploy/db-backup-simple.sh）
+0 4 * * * /home/ubuntu/eidolon-db-backup.sh     # ubuntu 用户的 crontab
+```
+
+- 用容器里的 `sqlite3` **在线备份 API**（WAL 模式下直接 cp 文件会拿到不一致的快照）
+- 备份前跑 `PRAGMA integrity_check`
+- 存 `/home/ubuntu/eidolon-backup/eidolon-YYYYMMDD-HHMM.db.gz`，**保留 14 天**（最新一份不删）
+- 日志追加到同目录的 `backup.log`；退出码 0 成功、2 导出/检查失败、5 容器没跑
+- 恢复：`gzip -dc ...db.gz > /data/eidolon.db`（容器停掉再换）
+
+一份约 70MB，14 天约 1GB。
+
 ## 怎么把上游的新东西合进来
 
 ```sh
