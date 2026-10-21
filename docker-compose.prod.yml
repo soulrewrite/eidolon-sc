@@ -21,7 +21,7 @@ services:
     restart: unless-stopped
 
   frontend:
-    image: ghcr.io/sallyn0225/eidolon-sc-frontend:${EIDOLON_IMAGE_TAG:-main}
+    image: ghcr.io/soulrewrite/eidolon-sc-frontend:${EIDOLON_IMAGE_TAG:-main}
     build: ./frontend
     network_mode: host
     environment:
@@ -35,7 +35,7 @@ services:
     restart: unless-stopped
 
   backend:
-    image: ghcr.io/sallyn0225/eidolon-sc-backend:${EIDOLON_IMAGE_TAG:-main}
+    image: ghcr.io/soulrewrite/eidolon-sc-backend:${EIDOLON_IMAGE_TAG:-main}
     build: ./backend
     network_mode: host
     env_file: .env
