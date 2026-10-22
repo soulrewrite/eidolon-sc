@@ -291,6 +291,8 @@ export function LetterSheet({
           "sm:max-h-[calc(100dvh-2rem)] sm:max-w-4xl sm:rounded-xl sm:bg-letter-scene sm:text-letter-scene-ink",
           // 打开时像把纸展开：从上面压开一点，同时淡入。
           "motion-safe:data-[state=open]:animate-letter-unfold",
+          // 信封那一层是绝对定位的，纸还没渲染时弹窗没有内容高度，得自己撑开。
+          sealed && "h-[min(88dvh,780px)] sm:h-[min(86dvh,720px)] sm:max-h-none",
         )}
       >
         {letter && sealed && letter.envelope_url && (
