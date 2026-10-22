@@ -163,6 +163,10 @@ MAX_INPUT_LENGTH = 2000
 input is rejected, not cut short."""
 MAX_TOOL_ROUNDS = 1
 """How many rounds of tool calls the chat model gets in one turn; after that it has to answer."""
+RECAP_TURNS = 4
+"""fork：新开的一段对话，第一轮把上一段末尾的几轮带上（见 FORK.md）。她不是每次打开 app 就
+失忆，也不是把整段旧对话背下来——几轮足够接上语气和刚才说到的事，又不至于每轮都烧一大段
+上下文。"""
 LAST_ROUND_NOTE = (
     "（这一轮不能再调用任何工具了，请现在就回答制作人。上面想起来的内容如果答不上他的问题，"
     "就像一时记不清那样自然地说，不要提到查找、工具、记录或剧情库。）"
@@ -611,9 +615,12 @@ class ConversationEngine:
             if in_call is None else None  # in a call, she knows they are talking
         )
         messages = [entry for entry in record if isinstance(entry, Message)]
+        # fork：新的一段对话，她记得上一次说到哪。第一轮（这一段还没有消息）把上一段的末尾
+        # 接进来，聊天模型、好感度判断和情绪判断读到的历史都从那里开始，情绪也就接得上。
+        previous = self._previous_tail(conversation) if not messages else []
         turns = self._history_turns()
         # What all but the chat model read: her reach-outs the user answers her latest words.
-        history = [*latest_turns(messages, turns), *_answering(record)]
+        history = [*previous, *latest_turns(messages, turns), *_answering(record)]
         affinity = self._affinity(conversation)
         judging = affinity is not None and not affinity.cooling
         eligibility = self._photo_eligibility(conversation, character, photo.own)
@@ -675,7 +682,8 @@ class ConversationEngine:
         about_photo = CANNOT_SEND if eligibility is None else photo_asked and photo_asked.prompt
         prompt = self._prompt(
             character, world_prompt, producer_prompt(profile),
-            chat_history(messages, turns), narrations(record, self._gift_catalog, timezone),
+            chat_history([*previous, *messages], turns),
+            narrations(record, self._gift_catalog, timezone),
             [
                 now_prompt(
                     profile, now, timezone, "in_call" if in_call is not None else "typing",
@@ -917,6 +925,15 @@ class ConversationEngine:
         if not isinstance(query, str) or not query.strip():
             return "调用参数有误：需要 query（要回顾的事，一句概括）。"
         return await self._retrieval.recall_story(character, query.strip())
+
+    def _previous_tail(self, conversation: Conversation) -> list[Message]:
+        """The last `RECAP_TURNS` turns of the user's previous conversation with her, which a
+        new one's first turn opens with (fork，见 FORK.md); nothing if there is none."""
+        before = self._store.conversation_before(conversation)
+        if before is None:
+            return []
+        said = [entry for entry in self._store.record(before.id) if isinstance(entry, Message)]
+        return latest_turns(said, RECAP_TURNS)
 
     def _prompt(
         self,

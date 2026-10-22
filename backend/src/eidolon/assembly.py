@@ -366,6 +366,7 @@ def build(
     reach_outs = ReachOuts(
         settings.database_path, store, engine, characters, config, affinities, activity, usage,
         calls.in_call, clock, random or secure_random,
+        intervals=settings.reach_out_intervals,
     )
     closers.append(reach_outs.close)
     # Her replies' speech, for the browser to play a segment at a time without a call: it

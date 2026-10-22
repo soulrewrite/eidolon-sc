@@ -145,6 +145,7 @@ class ReachOuts:
         in_call: Callable[[str], bool],
         clock: Clock,
         random: Random,
+        intervals: Mapping[str, tuple[timedelta, timedelta]] | None = None,
     ) -> None:
         self._store = store
         self._engine = engine
@@ -156,6 +157,12 @@ class ReachOuts:
         self._in_call = in_call
         self._clock = clock
         self._random = random
+        # fork：间隔可以按部署改（EIDOLON_REACH_OUT_INTERVALS），没写的档位用 INTERVALS。
+        self._intervals: dict[str, tuple[timedelta, timedelta]] = {
+            str(tier): span for tier, span in INTERVALS.items()
+        }
+        for tier, span in (intervals or {}).items():
+            self._intervals[str(tier)] = span
         self._started = clock()
         self._db = connect(path)
         self._lock = threading.Lock()
@@ -338,7 +345,7 @@ class ReachOuts:
     def _interval(self, tier: Tier, place: float | None = None) -> timedelta:
         """How long after a contact she reaches out in `tier`, at `place` in its range, or at
         one drawn."""
-        low, high = INTERVALS[tier]
+        low, high = self._intervals[tier]
         return low + (high - low) * (self._draw() if place is None else place)
 
     def _draw(self) -> float:

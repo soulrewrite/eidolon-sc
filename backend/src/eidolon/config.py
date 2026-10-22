@@ -431,6 +431,10 @@ class Settings:
     usage_limits: "UsageLimits" = field(default_factory=lambda: UsageLimits())
     history_turns: int | None = DEFAULT_HISTORY_TURNS
     """How many of the conversation's latest turns each prompt carries; None is all of them."""
+    reach_out_intervals: dict[str, tuple[timedelta, timedelta]] = field(
+        default_factory=lambda: dict(DEFAULT_REACH_OUT_INTERVALS)
+    )
+    """fork：她搭话的间隔范围，按档位（`EIDOLON_REACH_OUT_INTERVALS`），见 FORK.md。"""
     exempting_keys: frozenset[Service] = frozenset(EXEMPTING_SERVICES)
     """The services a call must bring the user's own keys for, all of them, to count
     towards no limit (GLOSSARY.md「免限额密钥」), at least one; all three unless `.env`
@@ -531,6 +535,7 @@ class Settings:
             emotion=EmotionSettings.from_env(),
             usage_limits=UsageLimits.from_env(),
             history_turns=history_turns_from_env(),
+            reach_out_intervals=reach_out_intervals_from_env(),
             exempting_keys=exempting_keys_from_env(),
             affinity_and_gifts=_switch("EIDOLON_AFFINITY_AND_GIFTS", default=True),
             reach_outs=_switch("EIDOLON_REACH_OUTS"),
@@ -641,6 +646,47 @@ def admins_from_env() -> frozenset[tuple[str, str]]:
             )
         admins.add((provider, subject.strip()))
     return frozenset(admins)
+
+
+DEFAULT_REACH_OUT_INTERVALS: dict[str, tuple[timedelta, timedelta]] = {
+    "intimate": (timedelta(hours=3), timedelta(hours=6)),
+    "close": (timedelta(hours=8), timedelta(hours=16)),
+    "trust": (timedelta(hours=20), timedelta(hours=36)),
+}
+"""fork：她搭话的间隔范围，按好感度档位（`reach_outs.INTERVALS` 上游写死的就是这一份）。
+`EIDOLON_REACH_OUT_INTERVALS` 可以改，写成 `档:最小-最大`（小时），逗号分开，
+没写到的档位保持这里的值，见 FORK.md。"""
+
+
+def reach_out_intervals_from_env() -> dict[str, tuple[timedelta, timedelta]]:
+    """`EIDOLON_REACH_OUT_INTERVALS`，如 `intimate:1-3,close:2-8,trust:6-16`。"""
+    raw = (os.environ.get("EIDOLON_REACH_OUT_INTERVALS") or "").strip()
+    intervals = dict(DEFAULT_REACH_OUT_INTERVALS)
+    if not raw:
+        return intervals
+    for item in _comma_list(raw):
+        tier, _, span = item.partition(":")
+        tier = tier.strip()
+        if tier not in DEFAULT_REACH_OUT_INTERVALS:
+            raise RuntimeError(
+                f"环境变量 EIDOLON_REACH_OUT_INTERVALS 里的 {tier} 不是档位："
+                f"只能是 {'、'.join(DEFAULT_REACH_OUT_INTERVALS)}"
+            )
+        low, sep, high = span.partition("-")
+        try:
+            least, most = float(low), float(high) if sep else float(low)
+        except ValueError:
+            raise RuntimeError(
+                f"环境变量 EIDOLON_REACH_OUT_INTERVALS 里的 {item} 读不出小时数，"
+                "要写成 档:最小-最大，如 close:2-8"
+            ) from None
+        if least <= 0 or most < least:
+            raise RuntimeError(
+                f"环境变量 EIDOLON_REACH_OUT_INTERVALS 里的 {item} 范围不合理："
+                "最小要大于 0，最大不能小于最小"
+            )
+        intervals[tier] = (timedelta(hours=least), timedelta(hours=most))
+    return intervals
 
 
 def history_turns_from_env() -> int | None:

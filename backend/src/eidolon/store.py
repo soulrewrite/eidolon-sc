@@ -825,6 +825,20 @@ class Store:
             ).fetchone()
         return Conversation(**row) if row else None
 
+    def conversation_before(
+        self, conversation: Conversation
+    ) -> Conversation | None:
+        """The user's newest conversation with the same character other than `conversation`
+        (fork：新对话接上一段用的，见 FORK.md）。"""
+        with self._lock:
+            row = self._db.execute(
+                "SELECT * FROM conversations"
+                " WHERE user_id = ? AND character_id = ? AND id != ?"
+                " ORDER BY created_at DESC, rowid DESC LIMIT 1",
+                (conversation.user_id, conversation.character_id, conversation.id),
+            ).fetchone()
+        return Conversation(**row) if row else None
+
     def list_conversations(
         self, user_id: str, character_id: str
     ) -> list[tuple[Conversation, Recorded | None, bool]]:

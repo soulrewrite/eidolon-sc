@@ -192,7 +192,11 @@ async def test_prompt_carries_the_character_sheet_and_the_conversation_so_far(
     ]
 
 
-async def test_conversations_are_kept_apart(make_client: ClientFactory):
+async def test_a_new_conversation_opens_with_the_previous_ones_tail(make_client: ClientFactory):
+    """fork：新开一段对话，她记得上一次说到哪（FORK.md「新对话接上一段」）。
+
+    上游这里断言两段对话完全互不知情；本 fork 有意不同——换一段对话不该等于失忆，
+    第一轮把上一段的最后几轮带上，语气和刚才说到的事才接得上。"""
     llm = FakeLLM(["<ja>一</ja><zh>一</zh>"], ["<ja>二</ja><zh>二</zh>"])
     client = make_client(llm)
     first = await start_conversation(client)
@@ -202,10 +206,26 @@ async def test_conversations_are_kept_apart(make_client: ClientFactory):
     await send_turn(client, second, "第二次")
 
     assert [(m.role, m.content) for m in llm.prompts[1] if m.role != "system"] == [
-        ("user", "第二次")
+        ("user", "第一次"),
+        ("assistant", "<ja>一</ja><zh>一</zh>"),
+        ("user", "第二次"),
     ]
     listed = (await client.get("/api/conversations", params={"character_id": "mano"})).json()
     assert [c["id"] for c in listed] == [second, first]
+
+
+async def test_another_characters_conversation_is_not_carried(make_client: ClientFactory):
+    """接的是**同一个角色**的上一段：不能把别人的话按到她身上。"""
+    llm = FakeLLM(["<ja>恋鐘です</ja><zh>我是恋钟。</zh>"], ["<ja>真乃です</ja><zh>我是真乃。</zh>"])
+    client = make_client(llm)
+    await send_turn(client, await start_conversation(client, "kogane"), "你好")
+    mano = await start_conversation(client)
+
+    await send_turn(client, mano, "你好")
+
+    assert [(m.role, m.content) for m in llm.prompts[1] if m.role != "system"] == [
+        ("user", "你好")
+    ]
 
 
 async def test_unknown_character_or_conversation_is_rejected(make_client: ClientFactory):

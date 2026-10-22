@@ -175,3 +175,29 @@ cd /opt/eidolon-sc && sudo docker compose -f docker-compose.custom.yml pull && s
 **合并上游时要注意**：这一块和上游的 `44a3657e`（成就）交织——叶月提交把成就的  
 「往来过几位角色」最高一档 28 → 29，我们没有成就系统，那一处直接跳过。  
 部署后要跑：story sync（她出场的剧情改算她）、stand-sync（衣装 91）、`eidolon greeting upload`。
+
+## 新对话接上一段（记忆与情绪流）
+
+上游的设计是**一段对话只读自己那段记录**（`test_conversations_are_kept_apart` 就是守着这一条），
+跨对话只靠散点记忆接续，于是「新建对话」在体感上等于失忆。
+
+本 fork：新的一段对话**第一轮**把同角色上一段的最后 `RECAP_TURNS`（4）轮接进历史。
+
+- `store.conversation_before()` 找同一个用户、同一个角色、排除当前这段的最近一段
+- `engine._reply` 把它拼在 `history` 前面，聊天模型、好感度判断、情绪判断读到的历史都从那里开始
+- 只接**第一轮**：之后这一段有了自己的消息，就不再重复（不烧上下文）
+- 只接**同一个角色**的：别人的对话不会按到她身上（有测试守着）
+
+## 她搭话的间隔可以调
+
+上游把间隔写死在 `reach_outs.INTERVALS`（intimate 3–6h / close 8–16h / trust 20–36h），
+改的话要动代码、连带改十几处测试。
+
+本 fork 改成 `EIDOLON_REACH_OUT_INTERVALS`，写成 `档:最小-最大`（小时），逗号分开，
+没写到的档位保持上游值：
+
+```
+EIDOLON_REACH_OUT_INTERVALS=intimate:1-3,close:2-6,trust:3-10
+```
+
+随机位置（`place`）本来就有，改的只是范围。夜里 22:00–08:00 仍然不打扰。

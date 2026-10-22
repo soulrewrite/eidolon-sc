@@ -87,3 +87,30 @@ def test_the_limit_comes_from_the_environment(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("EIDOLON_HISTORY_TURNS", "many")
     with pytest.raises(RuntimeError, match="EIDOLON_HISTORY_TURNS"):
         history_turns_from_env()
+
+
+def test_the_reach_out_intervals_come_from_the_environment(monkeypatch: pytest.MonkeyPatch):
+    """fork：她搭话的间隔范围可以按部署改（EIDOLON_REACH_OUT_INTERVALS），没写到的档位保持原样。"""
+    from datetime import timedelta
+
+    from eidolon.config import DEFAULT_REACH_OUT_INTERVALS, reach_out_intervals_from_env
+
+    monkeypatch.delenv("EIDOLON_REACH_OUT_INTERVALS", raising=False)
+    assert reach_out_intervals_from_env() == DEFAULT_REACH_OUT_INTERVALS
+
+    monkeypatch.setenv("EIDOLON_REACH_OUT_INTERVALS", "intimate:1-3, close:2-8")
+    intervals = reach_out_intervals_from_env()
+    assert intervals["intimate"] == (timedelta(hours=1), timedelta(hours=3))
+    assert intervals["close"] == (timedelta(hours=2), timedelta(hours=8))
+    assert intervals["trust"] == DEFAULT_REACH_OUT_INTERVALS["trust"]
+
+    monkeypatch.setenv("EIDOLON_REACH_OUT_INTERVALS", "close:2")
+    assert reach_out_intervals_from_env()["close"] == (timedelta(hours=2), timedelta(hours=2))
+
+    monkeypatch.setenv("EIDOLON_REACH_OUT_INTERVALS", "sweet:1-2")
+    with pytest.raises(RuntimeError, match="不是档位"):
+        reach_out_intervals_from_env()
+
+    monkeypatch.setenv("EIDOLON_REACH_OUT_INTERVALS", "close:8-2")
+    with pytest.raises(RuntimeError, match="范围不合理"):
+        reach_out_intervals_from_env()
