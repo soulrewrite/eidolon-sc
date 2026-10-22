@@ -488,6 +488,14 @@ def create_app(backend: Backend) -> FastAPI:
             raise HTTPException(404, "没有这位角色的通话背景图")
         return _picture(character.background, request)
 
+    @app.get("/api/characters/{character_id}/signature")
+    def character_signature(character_id: str, request: Request) -> Response:
+        """Her autograph, served like her avatar; a letter ends with it (fork)."""
+        character = characters.get(character_id)
+        if character is None or character.signature is None:
+            raise HTTPException(404, "没有这位角色的签名")
+        return _picture(character.signature, request)
+
     @app.get("/api/characters/{character_id}/affinity")
     def affinity(character_id: str, user_id: UserId) -> dict | None:
         """Her affinity with the user now, by tier only, and when the cooldown ends if she

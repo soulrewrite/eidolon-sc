@@ -59,6 +59,39 @@
       transform: translateY(-25%);
     }
   }
+  /* 信打开时像把纸展开：从上面压开一点，同时淡入。 */
+  --animate-letter-unfold: letter-unfold 0.45s cubic-bezier(0.2, 0.7, 0.3, 1) 1;
+  @keyframes letter-unfold {
+    0% {
+      opacity: 0;
+      transform: translateY(6px) scaleY(0.96);
+    }
+    100% {
+      opacity: 1;
+      transform: translateY(0) scaleY(1);
+    }
+  }
+  /* 有没读的信时，铃铛轻轻摇一下。 */
+  --animate-bell-sway: bell-sway 3.6s ease-in-out infinite;
+  @keyframes bell-sway {
+    0%,
+    62%,
+    100% {
+      transform: rotate(0deg);
+    }
+    68% {
+      transform: rotate(-9deg);
+    }
+    74% {
+      transform: rotate(7deg);
+    }
+    80% {
+      transform: rotate(-5deg);
+    }
+    86% {
+      transform: rotate(3deg);
+    }
+  }
   --font-heading: var(--font-sans);
   /* 中文正文的 Noto Sans SC（根布局用 next/font 载入成 --font-zh）。不用 shadcn init 换上的 Geist。 */
   --font-sans: var(--font-zh), "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;

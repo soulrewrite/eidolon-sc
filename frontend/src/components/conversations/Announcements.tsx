@@ -45,8 +45,11 @@ export function Announcements({ userId }: { userId: string | null }) {
   // 每次渲染现读：点「已读」记下之后收起弹窗，这次渲染就读到新的。
   const readAt = userId ? readUpTo(userId) : null;
   const unreadIn = (list: Announcement[] | null) => (userId && list ? unread(list, readAt) : new Set<string>());
-  const hasUnread = unreadIn(announcements).size > 0;
+  // 信也算「有新的」：铃铛会摇，颜色取最近一封还没读的（没有就用公告自己的）。
+  const unreadLetters = letters.filter((letter) => !letter.read);
+  const hasUnread = unreadIn(announcements).size > 0 || unreadLetters.length > 0;
   const unreadShown = unreadIn(shown);
+  const bellTint = unreadLetters[0]?.color ?? null;
 
   useEffect(() => {
     let cancelled = false;
@@ -102,8 +105,20 @@ export function Announcements({ userId }: { userId: string | null }) {
           />
         }
       >
-        <AnnouncementsBellIcon />
-        {hasUnread && <span aria-hidden className="absolute top-1.5 right-1.5 size-1.5 rounded-full bg-foreground" />}
+        <span
+          aria-hidden
+          className={hasUnread ? "inline-flex origin-top motion-safe:animate-bell-sway" : "inline-flex"}
+          style={bellTint ? { color: `color-mix(in srgb, ${bellTint} 62%, var(--foreground))` } : undefined}
+        >
+          <AnnouncementsBellIcon />
+        </span>
+        {hasUnread && (
+          <span
+            aria-hidden
+            className="absolute top-1.5 right-1.5 size-1.5 rounded-full"
+            style={{ background: bellTint ?? "var(--foreground)" }}
+          />
+        )}
       </DialogTrigger>
       {/* 矮屏上整个弹窗不超出视口，挤的是列表，底栏的两个键始终看得见。
           打开时聚焦弹窗本身：默认聚焦第一个可聚焦的元素，正文里有链接时列表会滚到链接那里，不停在最新一条上（#141）。 */}

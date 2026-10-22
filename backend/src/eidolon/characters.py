@@ -127,6 +127,8 @@ class Character:
     """Her image colour, the official one from the original, as lower-case `#rrggbb`."""
     background: Path | None = None
     """The picture behind her call screen; None shows a gradient of her image colour."""
+    signature: Path | None = None
+    """Her autograph, which a letter is signed with (fork); None signs with her name in type."""
     scsp_avatar: Path | None = None
     """Her avatar in SCSP's set, which users can switch to in settings; None, and they see
     her usual avatar either way."""
@@ -247,6 +249,7 @@ def _parse_character(
 
     avatar = _optional_file(entry, "avatar", base, label)
     background = _optional_file(entry, "background", base, label)
+    signature = _optional_file(entry, "signature", base, label)
     scsp_avatar = _optional_file(entry, "scsp_avatar", base, label)
 
     idol_id = entry.get("idol_id")
@@ -274,6 +277,7 @@ def _parse_character(
         avatar=avatar,
         color=entry["color"].lower(),
         background=background,
+        signature=signature,
         scsp_avatar=scsp_avatar,
         speakers=tuple(speakers),
         facts=facts,

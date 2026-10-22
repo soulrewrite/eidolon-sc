@@ -79,6 +79,10 @@ async def test_a_letter_comes_in_the_evening_and_is_read_once(
 
     [letter] = letters_of((await client.get("/api/letters")).json())
     assert letter["character_name"] == "櫻木真乃"
+    assert letter["color"].startswith("#")  # 印象色，前端拿它调墨色
+    assert letter["signature_url"] is None  # 这套测试的角色没配签名
+    assert letter["color"].startswith("#")  # 印象色，前端拿它调墨色
+    assert letter["signature_url"] is None  # 这套测试的角色没配签名
     assert letter["trigger"] in ("everyday", "birthday", "anniversary")
     assert [s["ja"] for s in letter["segments"]][1].startswith("今日は")
     assert letter["read"] is False

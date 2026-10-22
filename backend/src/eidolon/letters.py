@@ -84,6 +84,10 @@ class Letter:
             "character_id": self.character_id,
             "character_name": character.name,
             "character_name_zh": character.name_zh,
+            "color": character.color,
+            "signature_url": (
+                f"/api/characters/{character.id}/signature" if character.signature else None
+            ),
             "background_url": (
                 f"/api/characters/{character.id}/background" if character.background else None
             ),

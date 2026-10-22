@@ -4,20 +4,14 @@ import { useEffect } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { cn } from "@/lib/utils";
+import { Dialog, DialogContent, DialogFooter, DialogTitle } from "@/components/ui/dialog";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { copy } from "@/i18n";
-import type { Letter } from "@/lib/letters";
-
+import { letterBody, letterDay, letterLookOf, type Letter, type LetterLook } from "@/lib/letters";
+import { cn } from "@/lib/utils";
 import { Ja } from "@/theme/Ja";
 
 const t = copy.conversationList;
-
-/** The day a letter came, as 10月22日（木）. */
-export function letterDay(at: string): string {
-  const d = new Date(at);
-  return `${d.getMonth() + 1}月${d.getDate()}日`;
-}
 
 /** Why she wrote, when it is not just an evening. */
 function reasonOf(letter: Letter): string | null {
@@ -26,11 +20,88 @@ function reasonOf(letter: Letter): string | null {
   return null;
 }
 
+/** Her colour mixed into dark ink: a pastel on its own cannot be read. */
+function ink(color: string, percent: number): string {
+  return `color-mix(in srgb, ${color} ${percent}%, #2f2620)`;
+}
+
 /**
- * One of her letters (GLOSSARY.md「信」, fork), opened from the announcements: her call
- * background shows through, dimmed, and the words sit on a sheet of paper over it — Japanese
- * in the serif face the app keeps for her replies, the Chinese subtitle under each line, her
- * name signed at the end. Opening one marks it read.
+ * A sheet of her paper: her call background under a wash of paper colour, ruled, with a margin
+ * line down the left. `row` is both the line height and the rule spacing, so the words sit on
+ * the rules.
+ */
+function Sheet({
+  letter,
+  look,
+  row,
+  compact,
+  children,
+  wash = 0.66,
+}: {
+  letter: Letter;
+  look: LetterLook;
+  row: number;
+  compact: boolean;
+  children: React.ReactNode;
+  /** How much paper colour covers her background; the less, the more of her shows. */
+  wash?: number;
+}) {
+  return (
+    <div
+      className="relative overflow-hidden shadow-[0_1px_1px_rgba(0,0,0,.07),0_14px_30px_-14px_rgba(0,0,0,.4)] sm:rounded-[2px]"
+      style={{
+        padding: compact ? "22px 16px 18px 34px" : "30px 34px 22px 54px",
+        color: ink(letter.color, look.ink),
+        fontFamily: look.font,
+        fontWeight: look.weight,
+        letterSpacing: look.tracking,
+        // 横线按这个间距画，正文行高也是它——字才压得在线上。
+        "--row": `${row}px`,
+      } as React.CSSProperties}
+    >
+      {letter.background_url && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={letter.background_url}
+          alt=""
+          aria-hidden
+          className="absolute inset-0 size-full object-cover"
+          style={{ opacity: 0.74, filter: "saturate(.72) contrast(.9)" }}
+        />
+      )}
+      <div aria-hidden className="absolute inset-0" style={{ background: `rgba(252, 248, 238, ${wash})` }} />
+      <div
+        aria-hidden
+        className="absolute inset-0"
+        style={{
+          backgroundImage:
+            "repeating-linear-gradient(to bottom, transparent 0, transparent calc(var(--row) - 1px), rgba(96,122,138,.22) calc(var(--row) - 1px), rgba(96,122,138,.22) var(--row))",
+          backgroundPosition: compact ? "0 22px" : "0 30px",
+          backgroundSize: "100% var(--row)",
+        }}
+      />
+      {/* 左侧那条竖线 */}
+      <div
+        aria-hidden
+        className="absolute inset-y-0 w-px opacity-50"
+        style={{
+          left: compact ? 24 : 40,
+          background: `color-mix(in srgb, ${letter.color} 60%, rgba(150,52,52,.55))`,
+        }}
+      />
+      <div className="relative">{children}</div>
+    </div>
+  );
+}
+
+/**
+ * One of her letters (GLOSSARY.md「信」, fork): her call background under the paper, Japanese
+ * set on the rules, the Chinese on a second sheet of the same paper, her autograph at the foot.
+ * The face, the ink and the leading follow who wrote it — 明朝 for the ones with an edge,
+ * wide-tracked ゴシック for the ones who leave space between words.
+ *
+ * On a phone the paper fills the screen and everything steps down a size; the rules keep lining
+ * up with the words. Opening one marks it read.
  */
 export function LetterSheet({
   letter,
@@ -41,6 +112,14 @@ export function LetterSheet({
   onClose: () => void;
   onRead: (letter: Letter) => void;
 }) {
+  const compact = useIsMobile();
+  const look = letter ? letterLookOf(letter.character_id) : null;
+  const row = look ? (compact ? Math.round(look.row * 0.9) : look.row) : 34;
+  const body = letter
+    ? letterBody(letter.segments, [letter.character_name, letter.character_name_zh])
+    : [];
+  const [greeting, ...rest] = body;
+
   useEffect(() => {
     if (letter && !letter.read) onRead(letter);
     // 只在换了一封信时记一次；同一个对象重渲染不再调。
@@ -51,79 +130,142 @@ export function LetterSheet({
     <Dialog open={letter !== null} onOpenChange={(open) => !open && onClose()}>
       <DialogContent
         showCloseButton={false}
-        className="max-h-[calc(100dvh-2rem)] overflow-hidden p-0 sm:max-w-lg"
+        className={cn(
+          "max-h-[calc(100dvh-2rem)] gap-0 overflow-y-auto p-0",
+          "sm:max-w-lg",
+          // 打开时像把纸展开：从上面压开一点，同时淡入。
+          "motion-safe:data-[state=open]:animate-letter-unfold",
+        )}
       >
-        {letter && (
-          <div className="relative flex max-h-[calc(100dvh-2rem)] flex-col">
-            {letter.background_url && (
-              // 她的通话背景透出来，压暗、去色，好让字压得住。
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={letter.background_url}
-                alt=""
-                aria-hidden
-                className="absolute inset-0 size-full object-cover opacity-25 saturate-50"
-              />
-            )}
-            <div className="relative flex max-h-[calc(100dvh-2rem)] flex-col">
-              <DialogHeader className="px-6 pt-6 pb-2">
-                <p className="flex items-center gap-2 text-meta text-muted-foreground tabular-nums">
-                  {letterDay(letter.delivered_at)}
-                  {reasonOf(letter) && <Badge variant="secondary">{reasonOf(letter)}</Badge>}
-                </p>
-                <DialogTitle className="font-serif text-title">
-                  <Ja>{letter.segments[0]?.ja ?? ""}</Ja>
-                </DialogTitle>
-              </DialogHeader>
-              <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-2">
-                <div className="flex flex-col gap-4 font-serif">
-                  {letter.segments.slice(1).map((segment, i) => (
-                    <div key={i} className="flex flex-col gap-1">
-                      <p className="text-japanese-line leading-relaxed">
-                        <Ja>{segment.ja}</Ja>
-                      </p>
-                      {segment.zh && (
-                        <p className="text-subtitle text-muted-foreground">{segment.zh}</p>
-                      )}
-                    </div>
-                  ))}
-                </div>
-                <p className="mt-6 text-right font-serif text-body text-muted-foreground">
-                  {letter.character_name_zh ?? letter.character_name}
-                </p>
+        {letter && look && greeting && (
+          <div className="flex flex-col gap-3 bg-muted p-2 sm:rounded-lg sm:p-3">
+            <Sheet letter={letter} look={look} row={row} compact={compact}>
+              <p
+                className="text-right tabular-nums"
+                style={{
+                  lineHeight: "var(--row)",
+                  fontSize: compact ? 11.5 : 12.5,
+                  letterSpacing: ".07em",
+                  color: ink(letter.color, 26),
+                }}
+              >
+                {letterDay(letter.delivered_at)}
+              </p>
+              <DialogTitle
+                className="text-start font-normal"
+                style={{ lineHeight: "var(--row)", fontSize: compact ? 14 : 15 }}
+              >
+                <Ja>{greeting.ja}</Ja>
+              </DialogTitle>
+              <div style={{ marginTop: "var(--row)" }}>
+                {rest.map((segment, i) => (
+                  <p
+                    key={i}
+                    className="m-0 text-justify"
+                    style={{
+                      lineHeight: "var(--row)",
+                      fontSize: compact ? 14 : 15,
+                      textIndent: "2em",
+                    }}
+                  >
+                    <Ja>{segment.ja}</Ja>
+                  </p>
+                ))}
               </div>
-              <DialogFooter className="flex-row justify-end px-6 pt-2 pb-6">
-                <Button variant="ghost" onClick={onClose}>
-                  {copy.common.close}
-                </Button>
-              </DialogFooter>
-            </div>
+              <div className="flex justify-end" style={{ marginTop: "calc(var(--row) * .6)" }}>
+                {letter.signature_url ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={letter.signature_url}
+                    alt={`${letter.character_name} 的签名`}
+                    className="h-auto opacity-95 mix-blend-multiply [filter:saturate(.7)_contrast(1.02)_brightness(.92)]"
+                    style={{
+                      width: compact ? Math.round(look.signature * 0.74) : look.signature,
+                      transform: `rotate(${look.tilt}deg)`,
+                    }}
+                  />
+                ) : (
+                  <p className="font-serif text-body">
+                    {letter.character_name_zh ?? letter.character_name}
+                  </p>
+                )}
+              </div>
+            </Sheet>
+
+            <Sheet letter={letter} look={look} row={row} compact={compact} wash={0.78}>
+              <p
+                className="text-right"
+                style={{
+                  lineHeight: "var(--row)",
+                  fontSize: 11,
+                  letterSpacing: ".18em",
+                  color: "#94826e",
+                }}
+              >
+                {t.letterChinese}
+              </p>
+              {body.map((segment, i) => (
+                <p
+                  key={i}
+                  className="m-0 text-justify"
+                  style={{
+                    lineHeight: "var(--row)",
+                    fontSize: compact ? 13 : 13.5,
+                    letterSpacing: ".02em",
+                    textIndent: i === 0 ? 0 : "2em",
+                    fontFamily: '"Noto Sans SC", system-ui, sans-serif',
+                    fontWeight: 400,
+                  }}
+                >
+                  {segment.zh}
+                </p>
+              ))}
+            </Sheet>
           </div>
+        )}
+
+        <DialogFooter className="sticky bottom-0 flex-row justify-end gap-2 bg-background/90 p-3 backdrop-blur">
+          <Button variant="ghost" onClick={onClose}>
+            {copy.common.close}
+          </Button>
+        </DialogFooter>
+        {letter && reasonOf(letter) && (
+          <Badge variant="secondary" className="absolute top-4 left-4">
+            {reasonOf(letter)}
+          </Badge>
         )}
       </DialogContent>
     </Dialog>
   );
 }
 
-/** A letter in the announcements list: a line of paper with her name and the day, and a dot
- * while it is unread. */
+/** A letter in the announcements list: her envelope in her colour, the day, a dot unread. */
 export function LetterRow({
   letter,
   onClick,
+  compact,
 }: {
   letter: Letter;
   onClick: () => void;
+  /** A narrower row, for the dialog on a phone. */
+  compact?: boolean;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
       className={cn(
-        "flex w-full items-center gap-3 rounded-[min(var(--radius-md),10px)] px-2 py-2 text-left",
-        "transition-colors hover:bg-accent",
+        "group flex w-full items-center gap-3 rounded-[min(var(--radius-md),10px)] px-2 text-left",
+        "transition-[background-color,transform] hover:bg-accent active:scale-[.99]",
+        compact ? "py-1.5" : "py-2",
       )}
     >
-      <span aria-hidden className="font-serif text-body text-muted-foreground">
+      <span
+        aria-hidden
+        className="font-serif text-body transition-transform group-hover:-rotate-6"
+        // 信封用她的印象色，压一点黑，浅色也看得见。
+        style={{ color: ink(letter.color, 55) }}
+      >
         ✉
       </span>
       <span className="flex min-w-0 flex-1 flex-col">
@@ -135,7 +277,9 @@ export function LetterRow({
           {letterDay(letter.delivered_at)}
         </span>
       </span>
-      {!letter.read && <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-foreground" />}
+      {!letter.read && (
+        <span aria-hidden className="size-1.5 shrink-0 rounded-full" style={{ background: letter.color }} />
+      )}
     </button>
   );
 }
