@@ -1,8 +1,8 @@
 # 这个 fork 与上游的差异
 
-[Sallyn0225/eidolon-sc](https://github.com/Sallyn0225/eidolon-sc) 的 fork，只跑在自己那台部署上
-（`eidolon-sc.tail6eaf6c.ts.net`，Tailscale 内网）。上游的改动照常从 `upstream` 拉；这里动过什么，都按下面的
-编号记着，方便以后合并时知道要解哪些冲突。
+[Sallyn0225/eidolon-sc](https://github.com/Sallyn0225/eidolon-sc) 的 fork，只服务自己的一台服务器
+（Tailscale 内网，不是公网；地址不写在这里）。上游的改动照常从 `upstream` 拉；这里动过什么，
+都按下面的编号记着，方便以后合并时知道要解哪些冲突。
 
 - **远端**：`origin` = `https://github.com/soulrewrite/eidolon-sc.git`（CI 从这里构建镜像），
   `upstream` = `https://github.com/Sallyn0225/eidolon-sc.git`
@@ -23,15 +23,15 @@
 | 语音识别 STT | 阿里云百炼 | `STT_PROVIDER=bailian`、`DASHSCOPE_API_KEY` | 通话时用 |
 | 向量 + 重排 | 硅基流动 | `EMBEDDING_PROVIDER=siliconflow`、`EMBEDDING_MODEL=Qwen/Qwen3-Embedding-0.6B`、`RERANK_MODEL=Qwen/Qwen3-Reranker-0.6B`、`SILICONFLOW_API_KEY` | 剧情检索、记忆检索 |
 | 生图 | **TensorArt**（用 NovelAI 形态的客户端说话） | `NOVELAI_API_FORMAT=tensorart`、`NOVELAI_BASE_URL=https://openapi.tensor.art/openworks/v1`、`NOVELAI_MODEL=anime_lab_wai_illustrious` | **必须走代理**；变量名沿用 `NOVELAI_*`，因为客户端就是照着 NovelAI 那套写的，只有 `api_format` 决定打哪个服务 |
-| 立绘 / 语音存储 | 腾讯云 COS（`sc-1305781570`，广州） | `EIDOLON_STAND_S3_*`、`EIDOLON_STAND_ASSETS_URL` | S3 兼容接口 |
+| 立绘 / 语音存储 | 对象存储（S3 兼容） | `EIDOLON_STAND_S3_*`、`EIDOLON_STAND_ASSETS_URL` | 桶名、区域、密钥都在部署者的 `.env` 里 |
 | 登录 | GitHub OAuth | `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | 走 GitHub 必须直连（走代理 403） |
-| 代理 | mihomo（`127.0.0.1:7891`） | `EIDOLON_PROXY_URL`、`EIDOLON_PROXY_SERVICES=tts,image` | **只有 TTS 和生图走代理**；国内 API 直连快得多 |
+| 代理 | 本机 SOCKS5（mihomo） | `EIDOLON_PROXY_URL`、`EIDOLON_PROXY_SERVICES=tts,image` | **只有 TTS 和生图走代理**；国内 API 直连快得多 |
 
 其余与部署有关的：
 
 - 限额全部关掉：`EIDOLON_TURNS_PER_HOUR=0`、`EIDOLON_CALLS_PER_HOUR=0`、`EIDOLON_PHOTOS_PER_HOUR=0`（0 = 不限）
 - 搭话开着：`EIDOLON_REACH_OUTS=1`；间隔见「5」
-- 域名是 Tailscale 证书（`eidolon-sc.tail6eaf6c.ts.net`），**不是公网**
+- 域名用 Tailscale 签发的证书，**只在 tailnet 内可达**，不是公网
 - `docker` 守护进程**不要**配代理：镜像在 ghcr.io，直连能拉，配了代理反而在机场挂掉时全线失败
 
 ---
@@ -150,7 +150,7 @@ EIDOLON_REACH_OUT_INTERVALS=intimate:1-3,close:2-6,trust:3-10
 - 各处提示词「偶像」放宽为「偶像（或事务员）」；落地页分组（283プロ）与字体子集
 
 **部署后要跑**：story sync（她出场的剧情改算她）、stand-sync（衣装 91）、`eidolon greeting upload`。
-**角色文件是宿主机挂载的**（`/opt/eidolon-sc/characters`），改完要同步宿主机再重启，光换镜像不生效。
+**角色文件是宿主机挂载的**（容器里的 `/characters`），改完要同步宿主机再重启，光换镜像不生效。
 
 ---
 
@@ -207,15 +207,15 @@ EIDOLON_REACH_OUT_INTERVALS=intimate:1-3,close:2-6,trust:3-10
 ## 2.5 数据库备份（上游是 age + S3，这台没有桶）
 
 上游的 `deploy/db-backup.sh` 走 age 加密 + S3 兼容桶（ADR-0012），这台机器没配桶，所以另写了一个简单的，
-每天凌晨 4 点跑（服务器 `/home/ubuntu/eidolon-db-backup.sh`，仓库里是 `deploy/db-backup-simple.sh`）：
+每天凌晨 4 点跑（服务器上装在部署用户的家目录，仓库里是 `deploy/db-backup-simple.sh`）：
 
 ```sh
-0 4 * * * /home/ubuntu/eidolon-db-backup.sh     # ubuntu 用户的 crontab
+0 4 * * * ~/eidolon-db-backup.sh                # 部署用户的 crontab
 ```
 
 - 用容器里的 `sqlite3` **在线备份 API**（WAL 下直接 cp 会拿到不一致的快照）
 - 备份前跑 `PRAGMA integrity_check`
-- 存 `/home/ubuntu/eidolon-backup/eidolon-YYYYMMDD-HHMM.db.gz`，**保留 14 天**（最新一份不删）
+- 存 `~/eidolon-backup/eidolon-YYYYMMDD-HHMM.db.gz`，**保留 14 天**（最新一份不删）
 - 日志同目录 `backup.log`；退出码 0 成功、2 导出/检查失败、5 容器没跑
 - 恢复：容器停掉，`gzip -dc ...db.gz > /data/eidolon.db`
 
@@ -232,8 +232,8 @@ docker ps --format '{{.Names}} {{.Image}}'
 
 ```sh
 git rev-parse --short=7 HEAD        # 新提交的短哈希，CI 打的标签是 sha-<7位>
-# 编辑 /opt/eidolon-sc/.env 里的 EIDOLON_IMAGE_TAG
-cd /opt/eidolon-sc && sudo docker compose -f docker-compose.custom.yml pull && sudo docker compose -f docker-compose.custom.yml up -d
+# 编辑部署目录下的 .env 里的 EIDOLON_IMAGE_TAG
+cd <部署目录> && sudo docker compose -f docker-compose.custom.yml pull && sudo docker compose -f docker-compose.custom.yml up -d
 ```
 
 回滚：把这一行改回上一版的 sha 再 pull，不用重新构建。
