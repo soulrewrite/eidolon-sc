@@ -812,6 +812,11 @@ class ConversationEngine:
         character = self._characters[conversation.character_id]
         record = self._store.record(conversation.id)
         messages = [entry for entry in record if isinstance(entry, Message)]
+        # fork：这一段还年轻（她收到的说话不到 RECAP_TURNS 轮）时，先开口也接着上一段说，
+        # 不然刚换一段对话，之前聊到的事就断了（FORK.md「新对话接上一段」）。规则本来就叫她
+        # 先接最近聊过的事，这里把那段事递到她手里；聊久了，这一段自己的记录就够了。
+        young = sum(1 for entry in messages if entry.role == "user") < RECAP_TURNS
+        previous = self._previous_tail(conversation) if young else []
         profile = self._store.get_profile(conversation.user_id)
         timezone = effective_timezone(profile, None)
         now = self._clock()
@@ -822,11 +827,11 @@ class ConversationEngine:
         told = narrations(record, self._gift_catalog, timezone)
         told[None] = _since_last_turn(record, self._gift_catalog, timezone)
         memories = await self._memory.for_reaching_out(
-            conversation, timezone, last_turn_query(messages)
+            conversation, timezone, last_turn_query([*previous, *messages])
         )
         prompt = self._prompt(
             character, world_prompt, producer_prompt(profile),
-            chat_history(messages, self._history_turns()), told,
+            chat_history([*previous, *messages], self._history_turns()), told,
             [
                 now_prompt(
                     profile, now, timezone, "apart",

@@ -1,13 +1,18 @@
 # 这个 fork 与上游的差异
 
-本仓库是 [Sallyn0225/eidolon-sc](https://github.com/Sallyn0225/eidolon-sc) 的 fork，只服务于自己那台部署  
-（`eidolon-sc.tail6eaf6c.ts.net`）。上游的改动照常从 `upstream` 拉，这里的改动一律写在下面这份清单里，  
+本仓库是 [Sallyn0225/eidolon-sc](https://github.com/Sallyn0225/eidolon-sc) 的 fork，只服务于自己那台部署
+  
+（`eidolon-sc.tail6eaf6c.ts.net`）。上游的改动照常从 `upstream` 拉，这里的改动一律写在下面这份清单里，
+  
 方便以后合并上游时知道自己动过什么。
 
-- **基线**：上游 `4b869539`（2026-10-20 17:22:50，`feat/daily-tasks` 的 merge）。    
-  这个是当时正在跑的生产版本，**刻意没有追上游最新**：`8a31a358` 之后上游多了成就系统（achievements）    
+- **基线**：上游 `4b869539`（2026-10-20 17:22:50，`feat/daily-tasks` 的 merge）。
+    
+  这个是当时正在跑的生产版本，**刻意没有追上游最新**：`8a31a358` 之后上游多了成就系统（achievements）
+    
   和新角色 hazuki，没有在这台机器上验过，不跟着走。
-- **定向移植**：`7eb50984`（新角色七草はづき）已单独搬进来（见下面的「叶月」一节），    
+- **定向移植**：`7eb50984`（新角色七草はづき）已单独搬进来（见下面的「叶月」一节），
+    
   成就、通话上限、性能等其余上游提交都不要。
 - **远端**：
   - `origin` = `https://github.com/soulrewrite/eidolon-sc.git`（自己的 fork，CI 从这里构建镜像）
@@ -25,7 +30,8 @@
 
 上游的 CI 把镜像推到上游作者的 GHCR，fork 没有写权限；不改这三处，push 后 CI 会在推送那一步失败。
 
-> 服务器上实际跑的是 `docker-compose.custom.yml`（不在仓库里，含 TURN secret），它的 `image:` 也指向>   
+> 服务器上实际跑的是 `docker-compose.custom.yml`（不在仓库里，含 TURN secret），它的 `image:` 也指向
+>   
 > `ghcr.io/soulrewrite/…`。**改镜像地址时两边都要改。**
 
 ### 2. 消息语音（新增功能，上游没有）
@@ -69,7 +75,8 @@
 
 ### 4. 生图换成 TensorArt（WAI Illustrious），提示词放宽
 
-上游演示的部署用硅基流动的 Kolors；Kolors 没在 Danbooru 上训练过，**不认识  
+上游演示的部署用硅基流动的 Kolors；Kolors 没在 Danbooru 上训练过，**不认识
+  
 `morino rinze` 这类角色 tag**，只能按外貌 tag 画个“黑发红眼的女孩”，所以照片不是本人。
 
 | 文件                                                      | 改动                                                                                                                                                                                                                            |
@@ -80,11 +87,14 @@
 | `backend/tests/test_image_service.py`                   | 新增 TensorArt 的建任务/轮询/取图用例                                                                                                                                                                                                     |
 | `backend/tests/test_photos.py`、`test_photo_all_ages.py` | 断言里的提示词尾部同步                                                                                                                                                                                                                   |
 
-**这个接口只吃 4 个参数**（prompt / width / height / count）：`negative_prompt`、`seed`、  
-`steps`、`cfg` 都传不进去。要全参数得注册 TensorArt 的 Application 走 TAMS API  
+**这个接口只吃 4 个参数**（prompt / width / height / count）：`negative_prompt`、`seed`、
+  
+`steps`、`cfg` 都传不进去。要全参数得注册 TensorArt 的 Application 走 TAMS API
+  
 （`ap-east-1.tensorart.cloud/v1/jobs`），skills key 调它会 `app not found`。
 
-**服务器必须走代理**：`openapi.tensor.art` 在国内被 DNS 污染（解析到 Facebook 的 IP），  
+**服务器必须走代理**：`openapi.tensor.art` 在国内被 DNS 污染（解析到 Facebook 的 IP），
+  
 `.env` 的 `EIDOLON_PROXY_SERVICES` 因此是 `tts,image`。
 
 ### 5. 落地页的声音开关（视觉改动）
@@ -94,13 +104,16 @@
 | `frontend/src/app/(landing)/Spectrum.tsx` | 「声音 开/关」的文字按钮 → 内联音符 SVG（`aria-pressed` 区分开关） |
 | `frontend/src/app/(landing)/landing.css`  | `.lp-sound` 改成图标按钮；关掉时音符变暗并划一道斜线              |
 
-**文案没动**（`copy.sound` / `soundOn` / `soundOff` 仍用于 `aria-label`），所以落地页的字体子集  
-（`frontend/src/app/(landing)/fonts/`）不用重新生成。以后如果要改这里的文案，记得跑  
+**文案没动**（`copy.sound` / `soundOn` / `soundOff` 仍用于 `aria-label`），所以落地页的字体子集
+  
+（`frontend/src/app/(landing)/fonts/`）不用重新生成。以后如果要改这里的文案，记得跑
+  
 `node scripts/landing-fonts.mts`，否则 `fonts/coverage.test.ts` 会挂。
 
 ## 数据库备份（本 fork 自己的做法）
 
-上游的 `deploy/db-backup.sh` 走 age 加密 + S3 兼容桶（ADR-0012），这台机器没有配桶，  
+上游的 `deploy/db-backup.sh` 走 age 加密 + S3 兼容桶（ADR-0012），这台机器没有配桶，
+  
 所以另写了一个更简单的，每天凌晨 4 点跑：
 
 ```sh
@@ -127,7 +140,8 @@ git merge upstream/main                        # 或 git rebase upstream/main
 合并后：
 
 1. 看上面「合并时要注意」那个 `add_reach_out` 签名冲突。
-2. 重跑：后端 `uv run ruff check && uv run pyright && uv run pytest`；     
+2. 重跑：后端 `uv run ruff check && uv run pyright && uv run pytest`；
+     
    前端 `npm run typecheck && npm test && sh scripts/check-discipline.sh`。
 3. 把本文开头的「基线」改成新的提交号。
 4. push 到 `origin main`，CI 构建镜像，服务器 `docker compose -f docker-compose.custom.yml pull && up -d`。
@@ -140,7 +154,8 @@ git merge upstream/main                        # 或 git rebase upstream/main
 EIDOLON_IMAGE_TAG=sha-d2dceaf
 ```
 
-`docker-compose.custom.yml` 的两个服务都写成 `:${EIDOLON_IMAGE_TAG:-main}`，所以跑的是**某一次具体提交**  
+`docker-compose.custom.yml` 的两个服务都写成 `:${EIDOLON_IMAGE_TAG:-main}`，所以跑的是**某一次具体提交**
+  
 的镜像，不是会滚动的 `main`。好处是「服务器上跑的到底是哪一版」一眼能查：
 
 ```sh
@@ -187,6 +202,14 @@ cd /opt/eidolon-sc && sudo docker compose -f docker-compose.custom.yml pull && s
 - `engine._reply` 把它拼在 `history` 前面，聊天模型、好感度判断、情绪判断读到的历史都从那里开始
 - 只接**第一轮**：之后这一段有了自己的消息，就不再重复（不烧上下文）
 - 只接**同一个角色**的：别人的对话不会按到她身上（有测试守着）
+
+### 搭话也接得上上一段
+
+换到新的一段对话、她先开口时（这一段她说过的还不到 `RECAP_TURNS` 轮），搭话的提示词里
+也带着上一段的末尾——不然规则叫她「先接着最近聊过的事」，她手里却没有那件事，只能发一句空问候。
+
+检索（`last_turn_query`）跟着换成上一段的最后一句，找出相关的记忆。聊久了（这一段自己的
+轮数够了）就不再带上一段，只看本段。
 
 ## 她搭话的间隔可以调
 

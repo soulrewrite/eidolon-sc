@@ -858,3 +858,29 @@ async def test_what_she_thought_as_the_user_spoke_is_not_recorded_its_record_ref
         ("turn", "mano", "success", 0), ("turn", "mano", "success", 0),
         ("reach_out", "mano", "rejected", 0),
     ]
+
+
+async def test_a_reach_out_early_in_a_conversation_carries_the_previous_one(
+    make_client: ClientFactory, settings: Settings
+):
+    """fork：刚换到新的一段对话，她先开口时由头接得上上一段（FORK.md「新对话接上一段」）。
+
+    上游这里她只看得到本段的记录，所以换过对话之后第一句搭话只能是空问候。"""
+    # 两轮用掉两条脚本，第三条是搭话那份。
+    client, llm, clock, first = await talked(
+        make_client, REACH_OUT, REACH_OUT, random=FakeRandom(MIDDLE, MIDDLE, MIDDLE, MIDDLE)
+    )
+    second = await start_conversation(client)
+    await send_turn(client, second, "换了新的一段")
+    # 「最后一次接触」是按人和角色算的，两段的记录都要挪回 28 小时前，她才到点。
+    longer = clock.now - timedelta(hours=28)
+    for conversation in (first, second):
+        last_contact(settings.database_path, conversation, longer)
+
+    await backend_of(client).reach_outs.run_due()
+
+    [said] = reach_outs(await record(client, second))
+    assert "プロデューサーさん" in said["segments"][0]["ja"]
+    prompt = [(m.role, m.content) for m in llm.prompts[-1] if m.role != "system"]
+    assert ("user", "我去练习了") in prompt  # 上一段
+    assert ("user", "换了新的一段") in prompt  # 这一段
