@@ -891,8 +891,13 @@ def _memories_prompt(
     for memory in memories:
         when = _date(datetime.fromisoformat(memory.created_at).astimezone(ZoneInfo(timezone)))
         if memory.text.startswith(_LETTER_MARK):
-            # 她写给制作人的信（fork）：不是制作人告诉她的，是她自己做过的事。
-            lines.append(f"- {memory.text[len(_LETTER_MARK):]}（{when}，是你自己做的事）")
+            # 她写给制作人的信（fork）：不是制作人告诉她的，是谁做过的事要说清楚。
+            body = memory.text[len(_LETTER_MARK):]
+            if memory.source_character_id == character.id:
+                lines.append(f"- {body}（{when}，是你自己做的事）")
+            else:
+                writer = memory.source_character_name or ANOTHER_IDOL
+                lines.append(f"- {body}（{when}，是{writer}做的事，你只是听说了）")
         elif memory.source_character_id == character.id:
             lines.append(f"- {memory.text}（{when}，制作人对你说的）")
         else:
