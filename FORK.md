@@ -76,7 +76,8 @@
 - 限额全部关掉：`EIDOLON_TURNS_PER_HOUR=0`、`EIDOLON_CALLS_PER_HOUR=0`、`EIDOLON_PHOTOS_PER_HOUR=0`（0 = 不限）
 - 搭话开着：`EIDOLON_REACH_OUTS=1`；间隔见「5」
 - 域名用 Tailscale 签发的证书，**只在 tailnet 内可达**，不是公网
-- `docker` 守护进程**不要**配代理：镜像在 ghcr.io，直连能拉，配了代理反而在机场挂掉时全线失败
+- 拉镜像**走代理**：实测同一层直连 0 B/s（卡死）、走代理 7.5 MB/s，`pull + up -d` 13 秒完成。
+  代价是机场挂了 `docker pull` 会全线 EOF —— 那时候把 `docker.service.d/proxy.conf` 临时移走即可
 
 ---
 
