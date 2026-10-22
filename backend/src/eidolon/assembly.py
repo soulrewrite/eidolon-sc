@@ -206,8 +206,11 @@ def build(
     store = Store(settings.database_path)
     closers.append(store.close)
     if identity_providers is None:
+        # fork：github.com 在这台机器上直连时通时断（DNS 给的是 20.205.243.166），
+        # 有代理就让它走代理；api.github.com 仍直连。
         identity_providers = open_identity_providers(
-            settings.github, settings.google, settings.proxy.proxy_for("identity")
+            settings.github, settings.google,
+            settings.proxy.url if settings.proxy.enabled else None,
         )
         closers.extend(p.aclose for p in identity_providers.values())
     # Users' own DashScope keys hear with the deployer's model, or the default one where the
