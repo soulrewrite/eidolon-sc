@@ -136,6 +136,28 @@ export function letterBody(
   return said;
 }
 
+
+/** The 呼びかけ at the head of a letter, and the rest of that first paragraph when the model
+ * wrote them together (「プロデューサーへ。お誕生日おめでとう。…」). */
+export function splitGreeting(segment: { ja: string; zh: string } | undefined): {
+  greeting: { ja: string; zh: string } | null;
+  rest: { ja: string; zh: string } | null;
+} {
+  if (!segment) return { greeting: null, rest: null };
+  const cut = segment.ja.indexOf("。");
+  if (cut <= 0 || cut > 11 || !segment.ja.slice(0, cut).endsWith("へ")) {
+    return { greeting: segment, rest: null };
+  }
+  // 中文那头同样只取到第一个句号，跟着日文的称呼走。
+  const zhCut = segment.zh.indexOf("。");
+  const zhHead = zhCut > 0 && zhCut <= 12 ? segment.zh.slice(0, zhCut + 1) : segment.zh;
+  const zhRest = zhCut > 0 && zhCut <= 12 ? segment.zh.slice(zhCut + 1).trim() : "";
+  return {
+    greeting: { ja: segment.ja.slice(0, cut + 1), zh: zhHead },
+    rest: { ja: segment.ja.slice(cut + 1).trim(), zh: zhRest },
+  };
+}
+
 /** The day a letter came, as 2026年10月22日. */
 export function letterDay(at: string): string {
   const d = new Date(at);

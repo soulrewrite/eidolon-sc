@@ -7,7 +7,14 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogTitle } from "@/components/ui/dialog";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { copy } from "@/i18n";
-import { letterBody, letterDay, letterLookOf, type Letter, type LetterLook } from "@/lib/letters";
+import {
+  letterBody,
+  letterDay,
+  letterLookOf,
+  splitGreeting,
+  type Letter,
+  type LetterLook,
+} from "@/lib/letters";
 import { cn } from "@/lib/utils";
 import { Ja } from "@/theme/Ja";
 
@@ -118,7 +125,9 @@ export function LetterSheet({
   const body = letter
     ? letterBody(letter.segments, [letter.character_name, letter.character_name_zh])
     : [];
-  const [greeting, ...rest] = body;
+  // 模型有时把「プロデューサーへ。」和正文写在同一段里，拆开再排。
+  const { greeting, rest: tail } = splitGreeting(body[0]);
+  const rest = [...(tail && tail.ja ? [tail] : []), ...body.slice(1)];
 
   useEffect(() => {
     if (letter && !letter.read) onRead(letter);
