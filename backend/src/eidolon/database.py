@@ -39,6 +39,7 @@ USER_DATA = [
     ("daily_task_progress", "user_id = ?"),
     ("achievement_progress", "user_id = ?"),
     ("achievement_stages", "user_id = ?"),
+    ("letters", "user_id = ?"),
     ("usage", "user_id = ?"),
     ("user_limits", "user_id = ?"),
     ("reach_outs_off", "user_id = ?"),

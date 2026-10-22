@@ -21,6 +21,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from eidolon.affinity import Affinities, Tier
+from eidolon.database import connect
 from eidolon.characters import Character
 from eidolon.clock import Clock
 from eidolon.live_config import LiveConfig
@@ -122,7 +123,7 @@ class Letters:
         self._affinities = affinities
         self._clock = clock
         self._lock = threading.Lock()
-        self._db = sqlite3.connect(path, check_same_thread=False)
+        self._db = connect(path)
         self._db.row_factory = sqlite3.Row
         with self._lock, self._db:
             self._db.executescript(_SCHEMA)
