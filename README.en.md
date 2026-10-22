@@ -1,3 +1,10 @@
+> [!IMPORTANT]
+> **This is a fork of [Sallyn0225/eidolon-sc](https://github.com/Sallyn0225/eidolon-sc): `eidolon-sc-tsuzuku`.**
+> What it adds is in [FORK.md](FORK.md) (Chinese): message speech, letters she writes in the evening,
+> memory across conversations, more initiative from her, achievements, and Hazuki Nanakusa.
+> Maintained by its author alone; upstream has not reviewed it. Corpus, voices and stand assets are not
+> distributed with the repository ([ADR-0003](docs/adr/0003-corpus-and-voices-stay-private.md)).
+
 <div align="center">
 
 <img src="docs/images/landing.webp" alt="Eidolon-SC: talk with the idols of 283 Production" width="100%">

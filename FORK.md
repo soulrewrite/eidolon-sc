@@ -1,4 +1,45 @@
-# 这个 fork 与上游的差异
+# 续・闪耀色彩（eidolon-sc-tsuzuku）
+
+> fork 自 [Sallyn0225/eidolon-sc](https://github.com/Sallyn0225/eidolon-sc)，署名 `soulrewrite`，全年龄。
+
+## 为什么要一个 fork
+
+上游不接 PR，玩法由维护者按自己的喜好做。这个 fork 想要的只有一件事：**她像一个记得你的人。**
+
+- 不想打电话也能听她说 → 消息语音
+- 有些话当面说不出口 → 晚上写一封信，放在公告里
+- 换一段对话不该等于失忆 → 新对话接上上一段的末尾，情绪跟着接上
+- 一个人不会永远等你先开口 → 搭话更密、能连说几句
+- 另外把上游的成就系统和七草はづき搬了进来
+
+## 登记信息（社区玩法仓库）
+
+开登记 issue 时照抄这张表：
+
+| 项 | 值 |
+| --- | --- |
+| 仓库地址 | `https://github.com/soulrewrite/eidolon-sc-tsuzuku` |
+| 项目名 | 续・闪耀色彩（eidolon-sc-tsuzuku） |
+| 署名 | soulrewrite |
+| 内容分级 | 全年龄 |
+| 玩法简介 | 在 Eidolon-SC 上补上「她记得你」的那一面：消息语音、晚上写的信、跨对话的记忆与情绪衔接、更主动的搭话，外加成就系统和新角色七草はづき。 |
+
+**登记前只有本人在 GitHub 上能做的两件事**：
+
+1. `Settings → General → Repository name` 改成 `eidolon-sc-tsuzuku`（上游要求与 `eidolon-sc` 区分开，旧地址会自动跳转）
+2. 仓库设为 **Public**。它不是 GitHub fork network 里的那种 fork（是独立仓库推上去的），所以 Private → Public 一个开关就行；
+   如果是 fork，本来就只能是公开的
+
+**公开前自查**（都已确认过）：
+
+- [x] 没有密钥、令牌、密码（仓库里只有 `.env.example`，真实值在部署机上）
+- [x] 没有服务器地址、域名、桶名、家目录（2026-10-22 清过一遍，见提交「FORK.md 脱敏」）
+- [x] 没有剧情库、音色、立绘素材（ADR-0003；`characters/` 里只有上游也提交的头像与背景）
+- [x] `LICENSE` 仍是 AGPL-3.0-or-later，README 顶部写明了是 fork
+
+---
+
+## 远端与基线
 
 [Sallyn0225/eidolon-sc](https://github.com/Sallyn0225/eidolon-sc) 的 fork，只服务自己的一台服务器
 （Tailscale 内网，不是公网；地址不写在这里）。上游的改动照常从 `upstream` 拉；这里动过什么，

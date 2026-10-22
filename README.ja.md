@@ -1,3 +1,10 @@
+> [!IMPORTANT]
+> **これは [Sallyn0225/eidolon-sc](https://github.com/Sallyn0225/eidolon-sc) のフォーク、`eidolon-sc-tsuzuku` です。**
+> 追加したものは [FORK.md](FORK.md)（中国語）にまとめてあります：メッセージの読み上げ、夜に届く手紙、
+> 会話をまたぐ記憶、彼女からのより積極的な働きかけ、実績、七草はづき。
+> 作者が単独で保守しており、上流のレビューは受けていません。シナリオ・音声・立ち絵は
+> リポジトリに含まれません（[ADR-0003](docs/adr/0003-corpus-and-voices-stay-private.md)）。
+
 <div align="center">
 
 <img src="docs/images/landing.webp" alt="Eidolon-SC：283プロのアイドルとおしゃべりしよう" width="100%">
