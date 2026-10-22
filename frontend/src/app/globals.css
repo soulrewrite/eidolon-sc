@@ -324,3 +324,14 @@
     color-scheme: light dark;
     }
 }
+
+/* 信那张纸：不要浏览器自带的滚动条（它像一圈边），滚动照旧用滚轮和手指。 */
+@utility no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  &::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+    display: none;
+  }
+}

@@ -140,9 +140,9 @@ export function LetterSheet({
       <DialogContent
         showCloseButton={false}
         className={cn(
-          "gap-0 overflow-y-auto p-0",
-          // 手机：整屏。没有浮层的边、圆角和外面，纸就是屏幕。
-          "max-sm:inset-0 max-sm:top-0 max-sm:left-0 max-sm:h-dvh max-sm:w-screen",
+          "no-scrollbar gap-0 overflow-y-auto p-0",
+          // 手机：整屏。四边贴住，别用 100vw——它把滚动条那点宽度也算进去，会横向溢出。
+          "max-sm:inset-0 max-sm:top-0 max-sm:left-0 max-sm:h-auto max-sm:w-auto",
           "max-sm:max-w-none max-sm:translate-x-0 max-sm:translate-y-0 max-sm:rounded-none",
           "max-sm:bg-transparent max-sm:ring-0",
           // 桌面：一张压暗的桌上放一张纸。
