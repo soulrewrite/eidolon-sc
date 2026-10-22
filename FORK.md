@@ -7,6 +7,8 @@
 - **基线**：上游 `4b869539`（2026-10-20 17:22:50，`feat/daily-tasks` 的 merge）。
   这个是当时正在跑的生产版本，**刻意没有追上游最新**：`8a31a358` 之后上游多了成就系统（achievements）
   和新角色 hazuki，没有在这台机器上验过，不跟着走。
+- **定向移植**：`7eb50984`（新角色七草はづき）已单独搬进来（见下面的「叶月」一节），
+  成就、通话上限、性能等其余上游提交都不要。
 - **远端**：
   - `origin` = `https://github.com/soulrewrite/eidolon-sc.git`（自己的 fork，CI 从这里构建镜像）
   - `upstream` = `https://github.com/Sallyn0225/eidolon-sc.git`
@@ -160,3 +162,16 @@ cd /opt/eidolon-sc && sudo docker compose -f docker-compose.custom.yml pull && s
 - 不追上游每一次提交。只在自己有需求时，按上面的步骤整块合。
 - 不改动上游的领域模型（回合、搭话、记忆、好感度这些概念），除非已经写进 `GLOSSARY.md`。
 - 剧情库、音色、立绘素材不进仓库（上游 ADR-0003，这里照旧）。
+
+## 叶月（七草はづき）——上游 7eb50984 的定向移植
+
+只搬了这一个提交的内容，其余上游新功能（成就、通话上限、性能、发布流程）都不要：
+
+- `characters.toml` 叶月整条配置；头像、SCSP 头像、通话背景、人设 sheet、facts 与出处
+- 读音表「ななくさ はづき」；`world.py` 启动校验认事务所职员
+  （`world.json` 的 `office.staff` 本来就有她，不用重跑 world sync）
+- 各处提示词「偶像」放宽为「偶像（或事务员）」；前端落地页分组与字体子集
+
+**合并上游时要注意**：这一块和上游的 `44a3657e`（成就）交织——叶月提交把成就的
+「往来过几位角色」最高一档 28 → 29，我们没有成就系统，那一处直接跳过。
+部署后要跑：story sync（她出场的剧情改算她）、stand-sync（衣装 91）、`eidolon greeting upload`。
