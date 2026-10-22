@@ -157,6 +157,9 @@
   --color-share-muted: var(--share-muted);
   --color-share-rule: var(--share-rule);
   --color-share-track: var(--share-track);
+  /* 信（LetterSheet）的桌面和桌上的字（DESIGN.md「The Letter Desk Rule」）。 */
+  --color-letter-scene: var(--letter-scene);
+  --color-letter-scene-ink: var(--letter-scene-ink);
 
   /* 字号层级（Typography「Hierarchy」），字重随字号一起给出。 */
   --text-list-title: 1.25rem;
@@ -276,6 +279,11 @@
   --radius: 0.625rem;
   /* 新增：深色浮层的边线（The Night Edge Rule），和浮层底、页面底都 ≥ 3；浅色靠阴影，不画线。 */
   --overlay-edge: light-dark(transparent, oklch(0.556 0 0));
+  /* 新增：信（LetterSheet）的桌面（The Letter Desk Rule）。纸在两种模式下都是米白，所以桌面两种模式都偏深：
+   * 浅色是压暗的暖木色，深色比页面高一档（The Night Edge Rule）。 */
+  --letter-scene: light-dark(oklch(0.32 0.014 62), oklch(0.205 0.008 62));
+  /* 新增：桌面上的字（关闭键）。桌面两种模式都深，字固定用浅色，在 --letter-scene 上 ≥ 4.5。 */
+  --letter-scene-ink: light-dark(oklch(0.93 0.01 75), oklch(0.9 0.008 75));
   /* 新增：后台服务健康里「出错偏多」的琥珀色状态点（大量出错用 --destructive），在页面底和卡片底上 ≥ 3。 */
   --warning: light-dark(oklch(0.666 0.179 58.318), oklch(0.769 0.188 70.08));
   /* 新增：挂断键（DESIGN.md hang-up-red），就是 --destructive。 */

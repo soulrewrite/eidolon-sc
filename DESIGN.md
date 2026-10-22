@@ -277,6 +277,8 @@ components:
 
 **The Night Edge Rule.** 深色模式下每个浮层都要比页面高一层色调并带边线，边线和浮层底、页面底都 ≥ 3:1；浅色模式下靠阴影就够。
 
+**The Letter Desk Rule.** 信（LetterSheet）在桌面上打开：弹层自己的底是压暗的桌面（--letter-scene，纸两种模式都是米白，所以桌面两种模式都偏深；深色模式取比页面高一档），两张纸放在上面，纸是这里唯一有投影的东西（纸是实物；The Flat Rule 管的是界面元素）。桌面上的字（关闭键）用 --letter-scene-ink，在 --letter-scene 上 ≥ 4.5。手机上纸铺满整屏，没有桌面。
+
 ## Shapes
 
 - **控件**：shadcn 默认的 `--radius`（0.625rem）及其派生档（`rounded-sm` 到 `rounded-4xl`）。

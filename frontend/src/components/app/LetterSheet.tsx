@@ -55,9 +55,13 @@ function Sheet({
 }) {
   return (
     <div
-      className="relative overflow-hidden shadow-[0_1px_1px_rgba(0,0,0,.07),0_14px_30px_-14px_rgba(0,0,0,.4)] sm:min-w-0 sm:flex-1 sm:rounded-[2px]"
+      className="relative overflow-hidden sm:min-w-0 sm:flex-1 sm:rounded-[3px]"
       style={{
         padding: compact ? "22px 16px 18px 34px" : "30px 34px 22px 54px",
+        // 纸压在桌上：内圈一道极淡的暗线是纸的厚度，外面那层投影是纸离桌面的那点距离。
+        boxShadow: compact
+          ? "0 1px 0 rgba(255, 255, 255, .5) inset, 0 12px 26px -16px rgba(0, 0, 0, .55)"
+          : "0 1px 0 rgba(255, 255, 255, .55) inset, 0 0 0 1px rgba(122, 98, 64, .13) inset, 0 34px 64px -30px rgba(0, 0, 0, .7)",
         color: ink(letter.color, look.ink),
         fontFamily: look.font,
         fontWeight: look.weight,
@@ -77,12 +81,21 @@ function Sheet({
         />
       )}
       <div aria-hidden className="absolute inset-0" style={{ background: `rgba(252, 248, 238, ${wash})` }} />
+      {/* 纸纤维：两层几乎看不见的斜纹，只在近处让纸不像一块平涂的色块。 */}
       <div
         aria-hidden
         className="absolute inset-0"
         style={{
           backgroundImage:
-            "repeating-linear-gradient(to bottom, transparent 0, transparent calc(var(--row) - 1px), rgba(96,122,138,.22) calc(var(--row) - 1px), rgba(96,122,138,.22) var(--row))",
+            "repeating-linear-gradient(94deg, rgba(122, 98, 64, .035) 0 1px, transparent 1px 4px), repeating-linear-gradient(2deg, rgba(122, 98, 64, .022) 0 1px, transparent 1px 7px)",
+        }}
+      />
+      <div
+        aria-hidden
+        className="absolute inset-0"
+        style={{
+          backgroundImage:
+            "repeating-linear-gradient(to bottom, transparent 0, transparent calc(var(--row) - 1px), rgba(122, 99, 71, .2) calc(var(--row) - 1px), rgba(122, 99, 71, .2) var(--row))",
           backgroundPosition: compact ? "0 22px" : "0 30px",
           backgroundSize: "100% var(--row)",
         }}
@@ -145,14 +158,24 @@ export function LetterSheet({
           "max-sm:inset-0 max-sm:top-0 max-sm:left-0 max-sm:h-auto max-sm:w-auto",
           "max-sm:max-w-none max-sm:translate-x-0 max-sm:translate-y-0 max-sm:rounded-none",
           "max-sm:bg-transparent max-sm:ring-0",
-          // 桌面：一张压暗的桌上放一张纸。
-          "sm:max-h-[calc(100dvh-2rem)] sm:max-w-4xl sm:rounded-xl sm:bg-popover sm:ring-1 sm:ring-foreground/10",
+          // 桌面：一张压暗的桌上放两张纸。底色是自己的场景色（深色模式按 The Night Edge Rule 高一档），
+          // 纸的颜色、边和投影都在 Sheet 里，这里只管桌面和桌上的字。
+          "sm:max-h-[calc(100dvh-2rem)] sm:max-w-4xl sm:rounded-xl sm:bg-letter-scene sm:text-letter-scene-ink",
           // 打开时像把纸展开：从上面压开一点，同时淡入。
           "motion-safe:data-[state=open]:animate-letter-unfold",
         )}
       >
         {letter && look && greeting && (
-          <div className="flex flex-col gap-2 p-0 sm:flex-row sm:items-start sm:gap-4 sm:rounded-lg sm:bg-muted sm:p-4">
+          <div className="relative flex flex-col gap-2 p-0 sm:flex-row sm:items-start sm:gap-6 sm:p-6">
+            {/* 桌面顶上那点光：中间稍亮、四周按下去，纸才像放在桌上，而不是贴在白板上。 */}
+            <div
+              aria-hidden
+              className="pointer-events-none absolute inset-0 hidden sm:block"
+              style={{
+                background:
+                  "radial-gradient(120% 90% at 50% -20%, rgba(255, 255, 255, .11), transparent 62%)",
+              }}
+            />
             <Sheet letter={letter} look={look} row={row} compact={compact}>
               <div
                 className="flex items-baseline justify-end gap-2 tabular-nums"
@@ -252,7 +275,12 @@ export function LetterSheet({
         )}
 
         <DialogFooter className="sticky bottom-0 flex-row justify-end gap-2 bg-background/85 p-2 backdrop-blur sm:bg-transparent sm:p-3 sm:backdrop-blur-none">
-          <Button variant="ghost" onClick={onClose}>
+          <Button
+            variant="ghost"
+            onClick={onClose}
+            // 桌面上的钮压在深色桌面上：悬停用桌面自己的亮色，别用中性的浅灰底。
+            className="sm:hover:bg-white/10 sm:hover:text-letter-scene-ink"
+          >
             {copy.common.close}
           </Button>
         </DialogFooter>
