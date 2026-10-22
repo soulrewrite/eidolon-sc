@@ -50,6 +50,7 @@ from eidolon.embedding import EMBEDDING_TIMEOUT, Embedder, open_embedder
 from eidolon.engine import ConversationEngine
 from eidolon.identity import IdentityProvider, ProviderName, open_identity_providers
 from eidolon.image_generation import GENERATION_TIMEOUT
+from eidolon.letter_envelopes import Envelopes
 from eidolon.live_config import LiveConfig, Reach
 from eidolon.memory import Memories
 from eidolon.message_speech import MessageSpeech
@@ -382,6 +383,7 @@ def build(
     # fork：信（GLOSSARY.md「信」）。亲近以上的角色，晚上或特殊日子写一封，放在公告里。
     letters = Letters(
         settings.database_path, store, engine, characters, config, affinities, clock,
+        envelopes=Envelopes(settings.database_path.parent / "cards"),
     )
     closers.append(letters.close)
     # Her replies' speech, for the browser to play a segment at a time without a call: it

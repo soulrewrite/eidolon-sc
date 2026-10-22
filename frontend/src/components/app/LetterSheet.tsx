@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -43,13 +43,16 @@ function Sheet({
   row,
   compact,
   children,
-  wash = 0.93,
+  cardUrl,
+  wash = 0.55,
 }: {
   letter: Letter;
   look: LetterLook;
   row: number;
   compact: boolean;
   children: React.ReactNode;
+  /** 她的卡面，压在纸的右上角（信封用的那张）；null 时不放。 */
+  cardUrl?: string | null;
   /** How much paper colour covers her background; the less, the more of her shows. */
   wash?: number;
 }) {
@@ -66,6 +69,8 @@ function Sheet({
         fontFamily: look.font,
         fontWeight: look.weight,
         letterSpacing: look.tracking,
+        // 纸是半透的，她的背景会透上来；字靠这圈柔光从背景里浮出来。
+        textShadow: "0 1px 2px rgba(255, 255, 255, .85), 0 0 2px rgba(255, 255, 255, .6)",
         // 横线按这个间距画，正文行高也是它——字才压得在线上。
         "--row": `${row}px`,
       } as React.CSSProperties}
@@ -109,7 +114,112 @@ function Sheet({
           background: `color-mix(in srgb, ${letter.color} 60%, rgba(150,52,52,.55))`,
         }}
       />
-      <div className="relative">{children}</div>
+      <div className="relative" style={cardUrl ? { paddingRight: compact ? 0 : 128 } : undefined}>
+        {children}
+      </div>
+      {cardUrl && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={cardUrl}
+          alt=""
+          aria-hidden
+          className="absolute top-6 right-6 hidden object-cover sm:block"
+          style={{
+            width: 104,
+            height: 146,
+            borderRadius: 3,
+            boxShadow: "0 6px 16px -8px rgba(0, 0, 0, .5), 0 0 0 1px rgba(255, 255, 255, .6)",
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+
+/**
+ * The envelope a letter arrives in (fork): her card art behind it, blurred, and a cream
+ * envelope sealed in her colour. 「拆开」 opens the letter; the paper is behind it.
+ */
+function EnvelopeView({
+  letter,
+  art,
+  onOpen,
+}: {
+  letter: Letter;
+  art: string;
+  onOpen: () => void;
+}) {
+  return (
+    <div className="absolute inset-0 z-[5] flex flex-col items-center justify-center gap-7 overflow-hidden">
+      <div
+        aria-hidden
+        className="absolute inset-0"
+        style={{
+          backgroundImage: `url(${art})`,
+          backgroundSize: "cover",
+          backgroundPosition: "center",
+          filter: "blur(28px) saturate(.88) brightness(.72)",
+          transform: "scale(1.1)",
+        }}
+      />
+      <div
+        aria-hidden
+        className="absolute inset-0"
+        style={{ background: "linear-gradient(180deg, rgba(20, 16, 14, .5), rgba(20, 16, 14, .7))" }}
+      />
+      <div
+        className="relative shrink-0"
+        style={{
+          width: "min(86vw, 460px)",
+          aspectRatio: "460 / 310",
+          borderRadius: 7,
+          background: "linear-gradient(180deg, #f8f4ea, #eee6d5)",
+          boxShadow:
+            "0 34px 70px -28px rgba(0, 0, 0, .8), 0 0 0 1px rgba(120, 96, 64, .2) inset",
+        }}
+      >
+        {/* 上翻盖 */}
+        <div
+          aria-hidden
+          className="absolute inset-0"
+          style={{
+            clipPath: "polygon(0 0, 100% 0, 50% 55%)",
+            background: "linear-gradient(180deg, #fffdf7 0%, #f8f2e4 72%, #efe7d5 100%)",
+          }}
+        />
+        {/* 两道折痕 */}
+        <svg viewBox="0 0 460 310" preserveAspectRatio="none" className="absolute inset-0 size-full" aria-hidden>
+          <path d="M0 0 L230 170 L460 0" fill="none" stroke="rgba(120, 96, 64, .22)" strokeWidth="1" />
+        </svg>
+        {/* 蜡封：她的颜色 */}
+        <div
+          className="absolute top-[53%] left-1/2 flex size-[76px] -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full font-serif text-[26px]"
+          style={{
+            background: `radial-gradient(circle at 34% 28%, #fff6b8, ${letter.color} 52%, #b39600 100%)`,
+            color: "#3a2f00",
+            boxShadow: "0 4px 10px rgba(0, 0, 0, .4), 0 0 0 2px rgba(255, 255, 255, .28) inset",
+          }}
+        >
+          ✉
+        </div>
+        {/* 地址线 */}
+        <div className="absolute bottom-9 left-9 flex flex-col gap-2.5" aria-hidden>
+          {[168, 132, 96].map((width) => (
+            <div key={width} style={{ height: 1, width, background: "rgba(90, 70, 45, .3)" }} />
+          ))}
+        </div>
+        <div className="absolute right-9 bottom-7 font-serif text-[15px] tracking-wide" style={{ color: "#43331f" }}>
+          {letter.character_name} より
+        </div>
+      </div>
+      <button
+        type="button"
+        onClick={onOpen}
+        className="relative rounded-full bg-black/45 px-8 py-3 text-sm text-white backdrop-blur-sm transition-colors hover:bg-black/55"
+      >
+        {t.letterOpen}
+      </button>
     </div>
   );
 }
@@ -133,6 +243,8 @@ export function LetterSheet({
   onRead: (letter: Letter) => void;
 }) {
   const compact = useIsMobile();
+  const [opened, setOpened] = useState(false);
+  const sealed = Boolean(letter?.envelope_url) && !opened;
   const look = letter ? letterLookOf(letter.character_id) : null;
   const row = look ? (compact ? Math.round(look.row * 0.9) : look.row) : 34;
   const body = letter
@@ -141,6 +253,10 @@ export function LetterSheet({
   // 模型有时把「プロデューサーへ。」和正文写在同一段里，拆开再排。
   const { greeting, rest: tail } = splitGreeting(body[0]);
   const rest = [...(tail && tail.ja ? [tail] : []), ...body.slice(1)];
+
+  useEffect(() => {
+    setOpened(false);
+  }, [letter?.id]);
 
   useEffect(() => {
     if (letter && !letter.read) onRead(letter);
@@ -177,11 +293,14 @@ export function LetterSheet({
           "motion-safe:data-[state=open]:animate-letter-unfold",
         )}
       >
-        {letter && look && greeting && (
+        {letter && sealed && letter.envelope_url && (
+          <EnvelopeView letter={letter} art={letter.envelope_url} onOpen={() => setOpened(true)} />
+        )}
+        {letter && look && greeting && !sealed && (
           // 两张纸等高：中文那页通常短一截，多出来的横线就当还没写到的信纸，桌面不会空一块。
           // 手机也留一圈边：她的背景在纸外露出一点，纸是圆角的。
           <div className="relative flex flex-col gap-3 p-4 sm:flex-row sm:items-stretch sm:gap-6 sm:p-6">
-            <Sheet letter={letter} look={look} row={row} compact={compact}>
+            <Sheet letter={letter} look={look} row={row} compact={compact} cardUrl={letter.envelope_url}>
               <div
                 className="flex items-baseline justify-end gap-2 tabular-nums"
                 style={{
@@ -247,7 +366,7 @@ export function LetterSheet({
               </div>
             </Sheet>
 
-            <Sheet letter={letter} look={look} row={row} compact={compact} wash={0.95}>
+            <Sheet letter={letter} look={look} row={row} compact={compact} wash={0.64}>
               <p
                 className="text-right"
                 style={{
@@ -279,7 +398,7 @@ export function LetterSheet({
           </div>
         )}
 
-        <DialogFooter className="sticky bottom-0 flex-row justify-end gap-2 bg-transparent p-2 sm:p-3">
+        <DialogFooter className="sticky bottom-0 z-10 flex-row justify-end gap-2 bg-transparent p-2 sm:p-3">
           <Button
             variant="ghost"
             onClick={onClose}

@@ -24,6 +24,7 @@ from eidolon.affinity import Affinities, Tier
 from eidolon.database import connect
 from eidolon.characters import Character
 from eidolon.clock import Clock
+from eidolon.letter_envelopes import Envelopes
 from eidolon.live_config import LiveConfig
 from eidolon.engine import ConversationEngine
 from eidolon.reply_format import Segment
@@ -61,7 +62,8 @@ CREATE TABLE IF NOT EXISTS letters (
     written_at TEXT NOT NULL,
     delivered_at TEXT NOT NULL,
     segments TEXT NOT NULL,
-    read_at TEXT
+    read_at TEXT,
+    envelope_enza TEXT
 );
 CREATE INDEX IF NOT EXISTS letters_of_user ON letters (user_id, delivered_at);
 """
@@ -77,6 +79,7 @@ class Letter:
     delivered_at: datetime
     segments: list[Segment]
     read: bool
+    envelope_enza: str | None = None
 
     def as_json(self, character: Character) -> dict:
         return {
@@ -90,6 +93,9 @@ class Letter:
             ),
             "background_url": (
                 f"/api/characters/{character.id}/background" if character.background else None
+            ),
+            "envelope_url": (
+                f"/api/letters/{self.id}/envelope" if self.envelope_enza else None
             ),
             "trigger": self.trigger,
             "delivered_at": self.delivered_at.isoformat(),
@@ -119,6 +125,7 @@ class Letters:
         config: LiveConfig,
         affinities: Affinities,
         clock: Clock,
+        envelopes: "Envelopes | None" = None,
     ) -> None:
         self._store = store
         self._engine = engine
@@ -126,11 +133,15 @@ class Letters:
         self._config = config
         self._affinities = affinities
         self._clock = clock
+        self._envelopes = envelopes
         self._lock = threading.Lock()
         self._db = connect(path)
         self._db.row_factory = sqlite3.Row
         with self._lock, self._db:
             self._db.executescript(_SCHEMA)
+            columns = {row[1] for row in self._db.execute("PRAGMA table_info(letters)")}
+            if "envelope_enza" not in columns:  # 旧的库：补上这一列
+                self._db.execute("ALTER TABLE letters ADD COLUMN envelope_enza TEXT")
         self._writing = False
 
     def close(self) -> None:
@@ -182,7 +193,12 @@ class Letters:
             if len(segments) < 2:
                 log.warning("a letter to %s came out too short", conversation.character_id)
                 return
-            self._keep(conversation, segments, trigger, now)
+            envelope = (
+                await self._envelopes.for_idol(character.idol_id, now)
+                if self._envelopes is not None
+                else None
+            )
+            self._keep(conversation, segments, trigger, now, envelope)
             log.info("a letter from %s (%s)", conversation.character_id, trigger)
         finally:
             self._writing = False
@@ -259,7 +275,12 @@ class Letters:
         return datetime.fromisoformat(row["delivered_at"]) if row else None
 
     def _keep(
-        self, conversation: Conversation, segments: Sequence[Segment], trigger: str, now: datetime
+        self,
+        conversation: Conversation,
+        segments: Sequence[Segment],
+        trigger: str,
+        now: datetime,
+        envelope_enza: str | None = None,
     ) -> None:
         letter_id = hashlib.sha256(
             f"{conversation.id}:{now.isoformat()}".encode()
@@ -267,7 +288,8 @@ class Letters:
         with self._lock, self._db:
             self._db.execute(
                 "INSERT INTO letters (id, user_id, character_id, trigger, written_at,"
-                " delivered_at, segments, read_at) VALUES (?, ?, ?, ?, ?, ?, ?, NULL)",
+                " delivered_at, segments, read_at, envelope_enza)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?)",
                 (
                     letter_id,
                     conversation.user_id,
@@ -276,6 +298,7 @@ class Letters:
                     now.isoformat(),
                     now.isoformat(),
                     json.dumps([{"ja": s.ja, "zh": s.zh} for s in segments], ensure_ascii=False),
+                    envelope_enza,
                 ),
             )
             self._db.execute(
@@ -295,7 +318,8 @@ class Letters:
         """Every letter the user has, the latest first."""
         with self._lock:
             rows = self._db.execute(
-                "SELECT id, character_id, trigger, delivered_at, segments, read_at FROM letters"
+                "SELECT id, character_id, trigger, delivered_at, segments, read_at, envelope_enza"
+                " FROM letters"
                 " WHERE user_id = ? ORDER BY delivered_at DESC",
                 (user_id,),
             ).fetchall()
@@ -312,9 +336,34 @@ class Letters:
                     segments=[Segment(ja=s.get("ja", ""), zh=s.get("zh", ""))
                               for s in json.loads(row["segments"])],
                     read=row["read_at"] is not None,
+                    envelope_enza=row["envelope_enza"],
                 )
             )
         return letters
+
+    def letter_of(self, user_id: str, letter_id: str) -> "Letter | None":
+        """The user's one letter, if it is theirs."""
+        with self._lock:
+            row = self._db.execute(
+                "SELECT id, character_id, trigger, delivered_at, segments, read_at, envelope_enza"
+                " FROM letters WHERE user_id = ? AND id = ?",
+                (user_id, letter_id),
+            ).fetchone()
+        if row is None:
+            return None
+        return Letter(
+            id=row["id"],
+            character_id=row["character_id"],
+            trigger=row["trigger"],
+            delivered_at=datetime.fromisoformat(row["delivered_at"]),
+            segments=[Segment(ja=s.get("ja", ""), zh=s.get("zh", ""))
+                      for s in json.loads(row["segments"])],
+            read=row["read_at"] is not None,
+            envelope_enza=row["envelope_enza"],
+        )
+
+    def envelope_path(self, enza_id: str) -> Path | None:
+        return self._envelopes.path(enza_id) if self._envelopes is not None else None
 
     def mark_read(self, user_id: str, letter_id: str) -> bool:
         with self._lock, self._db:
@@ -344,6 +393,7 @@ async def _thread(fn):  # noqa: ANN001, ANN201
 def add_letter_routes(app, store: Store, letters: Letters, characters: Mapping[str, Character]) -> None:  # noqa: ANN001
     """`/api/letters`: what she has written to the user, the latest first, and `/api/letters/{id}/read`."""
     from fastapi import HTTPException
+    from fastapi.responses import Response
 
     from eidolon.sessions import UserId
 
@@ -355,6 +405,20 @@ def add_letter_routes(app, store: Store, letters: Letters, characters: Mapping[s
                 for letter in letters.of(user_id, characters)
             ]
         }
+
+    @app.get("/api/letters/{letter_id}/envelope")
+    async def letter_envelope(letter_id: str, user_id: UserId) -> Response:
+        from fastapi.responses import FileResponse
+
+        letter = letters.letter_of(user_id, letter_id)
+        path = letters.envelope_path(letter.envelope_enza) if letter and letter.envelope_enza else None
+        if path is None or not path.exists():
+            raise HTTPException(404, "没有这封信的信封")
+        return FileResponse(
+            path,
+            media_type="image/jpeg",
+            headers={"Cache-Control": "public, max-age=31536000, immutable"},
+        )
 
     @app.post("/api/letters/{letter_id}/read", status_code=204)
     async def read_letter(letter_id: str, user_id: UserId) -> None:

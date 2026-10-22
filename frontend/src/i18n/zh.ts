@@ -151,6 +151,8 @@ export const zh = {
     letterForAnniversary: "纪念日",
     noLetters: "还没有信",
     letterChinese: "中文",
+    /** 信的蜡封上那个按钮（fork）：点开才看到信纸。 */
+    letterOpen: "拆开",
     /** 铃铛旁边的服务状态和它打开的小窗口（GLOSSARY.md「服务状态」）；有服务不正常时按钮念后一句。 */
     serviceStatus: "服务状态",
     serviceStatusFailing: "服务状态，有服务不正常",

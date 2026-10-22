@@ -17,6 +17,8 @@ export type Letter = {
   background_url: string | null;
   /** Her autograph, drawn at the foot of the letter; null signs with her name in type. */
   signature_url: string | null;
+  /** The card art her envelope is made of; null when she has no card to show. */
+  envelope_url: string | null;
   /** Why she wrote: his birthday, the monthly return of the day they first spoke, or nothing
    * more than an evening. */
   trigger: "birthday" | "anniversary" | "everyday";

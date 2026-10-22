@@ -49,6 +49,10 @@ class Card:
     """`P_SSR`, `S_SR` and so on: a produce (P) or support (S) card."""
     version: str
     """Changes whenever the card's data does."""
+    enza_id: str
+    """The card's `enzaId`, which its art is filed under on the CDN. Empty if it has none."""
+    release_date: str
+    """`YYYY-MM-DD`, as the mirror has it; empty when it does not say."""
 
 
 @dataclass(frozen=True)
@@ -136,6 +140,8 @@ class Mirror:
                     name=card["cardName"],
                     type=card["cardType"],
                     version=f"{card.get('cardHash')}/{card.get('lastModified')}",
+                    enza_id=str(card.get("enzaId") or ""),
+                    release_date=str(card.get("releaseDate") or ""),
                 )
                 for card in info.get("cardLists") or []
             ]
