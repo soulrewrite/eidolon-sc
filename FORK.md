@@ -30,12 +30,15 @@
 2. 仓库设为 **Public**。它不是 GitHub fork network 里的那种 fork（是独立仓库推上去的），所以 Private → Public 一个开关就行；
    如果是 fork，本来就只能是公开的
 
-**公开前自查**（都已确认过）：
+**公开前自查**：
 
-- [x] 没有密钥、令牌、密码（仓库里只有 `.env.example`，真实值在部署机上）
-- [x] 没有服务器地址、域名、桶名、家目录（2026-10-22 清过一遍，见提交「FORK.md 脱敏」）
+- [x] 没有密钥、令牌、密码——仓库里从来没有过，真实值只在部署机的 `.env`
+- [x] 当前文件里没有服务器地址、域名、桶名、家目录（2026-10-22 清过一遍）
 - [x] 没有剧情库、音色、立绘素材（ADR-0003；`characters/` 里只有上游也提交的头像与背景）
 - [x] `LICENSE` 仍是 AGPL-3.0-or-later，README 顶部写明了是 fork
+- [ ] **git 历史里还留着**旧版本文档提过的域名和桶名（`e0397b8a`、`9506d3c`），**决定不清**：
+      清了要重写所有提交哈希、部署的镜像 tag 得重新对齐，不值当；
+      这两个名字也进不去服务器（域名只在自己的 tailnet 里解析，桶名只读不写）
 
 ---
 
@@ -302,7 +305,17 @@ git apply --3way /tmp/x.patch                  # 二进制文件（jpg/woff2）�
 - 新加的表要同时登记进 `database.USER_DATA`（否则删账号会漏数据，`test_database` 会拦）；
   连库只能走 `eidolon.database.connect`，不许自己 `sqlite3.connect`
 
-## 2.8 这个 fork 不打算做的事
+## 2.8 部署侧的把口收在哪
+
+自己的部署不靠「域名没人知道」来保护，靠这三层（都不在仓库里，换部署的人要自己配）：
+
+| 面 | 做法 |
+| --- | --- |
+| 前端 | 只监听 `127.0.0.1:8080`（compose 里 `HOSTNAME`），公网摸不到，nginx 反代它 |
+| HTTPS | nginx 只 `listen <tailscale IP>:443`，公网连 SNI 打了也连不上；证书由 `tailscale cert` 签发 |
+| SSH | root 不许用密码登录（`PermitRootLogin prohibit-password`），普通账号保留密码 + fail2ban 挡爆破 |
+
+## 2.9 这个 fork 不打算做的事
 
 - 不追上游每一次提交。只在自己有需求时按上面步骤整块合。
 - 不改上游的领域模型（回合、搭话、记忆、好感度这些概念），除非已经写进 `GLOSSARY.md`。
