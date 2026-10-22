@@ -166,7 +166,8 @@ export function LetterSheet({
         )}
       >
         {letter && look && greeting && (
-          <div className="relative flex flex-col gap-2 p-0 sm:flex-row sm:items-start sm:gap-6 sm:p-6">
+          // 两张纸等高：中文那页通常短一截，多出来的横线就当还没写到的信纸，桌面不会空一块。
+          <div className="relative flex flex-col gap-2 p-0 sm:flex-row sm:items-stretch sm:gap-6 sm:p-6">
             {/* 桌面顶上那点光：中间稍亮、四周按下去，纸才像放在桌上，而不是贴在白板上。 */}
             <div
               aria-hidden
