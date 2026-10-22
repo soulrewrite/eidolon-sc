@@ -471,6 +471,24 @@ REACH_OUT_RULES = """# 先开口
 """How she is to reach out (GLOSSARY.md「搭话」), told her last in what changes from turn to turn,
 where what retrieval finds would be."""
 
+LETTER_RULES = """# 写一封信
+制作人不在你面前。你要给他写一封信，等他晚上看到。
+- 这是信，不是聊天：开头有称呼，结尾有落款（你的名字）。
+- 写你平时当面说不出口的那些话：依赖、担心、想念、怕失去、说不清的喜欢。可以比平常直接得多，但不要露骨、不下流。
+- 引一件具体的事：你们最近聊过的，或者你们之间发生过的（查得到的剧情）。
+- 不要总结对话，不要给建议，不要说教，不要写成日记。
+- 四到六段，每段一到三句。"""
+"""How she is to write a letter (fork, GLOSSARY.md「信」): the things she would not say to his face."""
+
+WANTS_TO_WRITE = "（制作人这会儿不在。你想给他写一封信。）"
+"""Where the user's words would be as she writes: as narration does, the prompt ends with the user."""
+
+LETTER_DAYS = {
+    "birthday": "今天是制作人的生日。",
+    "anniversary": "今天是你们第一次说话之后整月的日子。",
+}
+"""What a letter written for a day says about that day, if anything."""
+
 WANTS_TO_REACH_OUT = "（制作人这会儿没在和你说话。你想先给他发几句。）"
 """Where the user's words would be as she reaches out, after the events since the last turn:
 so every protocol takes the prompt, ending with the user, as narration does."""
@@ -848,6 +866,58 @@ class ConversationEngine:
             async for item in stream:
                 if isinstance(item, str):
                     parser.feed(item)  # a photo tag is dropped: she sends none
+        finally:
+            if (close := getattr(stream, "aclose", None)) is not None:
+                await close()
+        parser.finish()
+        if not parser.complete:
+            raise EmptyReply("对话模型没有返回任何内容")
+        return parser.complete
+
+    async def letter(
+        self, conversation: Conversation, llm: ChatLLM, trigger: str = "everyday"
+    ) -> list[Segment]:
+        """What she writes him when he is not there (fork, GLOSSARY.md「信」), on `llm`: its
+        segments, delivery cues and all. Laid out as a reach-out's prompt is, but for what
+        closes it: how to write a letter, and, on a day that calls for one, what day it is.
+        Nothing is judged, no tool offered, nothing recorded here — the caller keeps it."""
+        character = self._characters[conversation.character_id]
+        record = self._store.record(conversation.id)
+        messages = [entry for entry in record if isinstance(entry, Message)]
+        young = sum(1 for entry in messages if entry.role == "user") < RECAP_TURNS
+        previous = self._previous_tail(conversation) if young else []
+        profile = self._store.get_profile(conversation.user_id)
+        timezone = effective_timezone(profile, None)
+        now = self._clock()
+        affinity = self._affinity(conversation)
+        world_prompt = (
+            self._world.prompt(character.name, local_date(now, timezone)) if self._world else None
+        )
+        told = narrations(record, self._gift_catalog, timezone)
+        told[None] = ""
+        memories = await self._memory.for_reaching_out(
+            conversation, timezone, last_turn_query([*previous, *messages])
+        )
+        prompt = self._prompt(
+            character, world_prompt, producer_prompt(profile),
+            chat_history([*previous, *messages], self._history_turns()), told,
+            [
+                now_prompt(
+                    profile, now, timezone, "apart",
+                    affinity_prompt(affinity.tier, None) if affinity is not None else [],
+                    self._store.last_contact(conversation.user_id, conversation.character_id),
+                ),
+                *([LETTER_DAYS[trigger]] if trigger in LETTER_DAYS else []),
+            ],
+            [*([memories] if memories else []), LETTER_RULES],
+            WANTS_TO_WRITE, None,
+        )
+        parser = ReplyParser()
+        stream = llm.stream(prompt)
+        try:
+            async for item in stream:
+                if isinstance(item, str):
+                    parser.feed(item)  # a photo tag is dropped: a letter is words only
         finally:
             if (close := getattr(stream, "aclose", None)) is not None:
                 await close()

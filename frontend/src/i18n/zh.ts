@@ -145,6 +145,11 @@ export const zh = {
     /** 置顶的那条公告，日期后面的标记。 */
     pinnedAnnouncement: "置顶",
     markAnnouncementsRead: "已读",
+    /** 信（fork）：放在公告里，亲近以上的角色晚上或特殊日子写的。 */
+    letters: "信",
+    letterForBirthday: "生日",
+    letterForAnniversary: "纪念日",
+    noLetters: "还没有信",
     /** 铃铛旁边的服务状态和它打开的小窗口（GLOSSARY.md「服务状态」）；有服务不正常时按钮念后一句。 */
     serviceStatus: "服务状态",
     serviceStatusFailing: "服务状态，有服务不正常",

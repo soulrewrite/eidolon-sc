@@ -58,6 +58,7 @@ from eidolon.prices import Prices
 from eidolon.own_keys import LLMService, OwnImageService, OwnKeys, ProviderLLMService
 from eidolon.photos import Photos
 from eidolon.proxy import ProxyRoutes
+from eidolon.letters import Letters
 from eidolon.reach_outs import ReachOuts
 from eidolon.readings import load_readings, readings_path
 from eidolon.rerank import (
@@ -130,6 +131,7 @@ class Backend:
     data_packages: DataPackages
     """Exports users' data packages, and imports them."""
     reach_outs: ReachOuts
+    letters: Letters
     """Has characters reach out to users once their time comes."""
     message_speech: MessageSpeech | None = None
     """What she says in a reply, voiced for the browser to play a segment at a time; None
@@ -141,6 +143,7 @@ class Backend:
     _keeping_fresh: asyncio.Task[None] | None = field(default=None, repr=False)
     _probing: asyncio.Task[None] | None = field(default=None, repr=False)
     _reaching_out: asyncio.Task[None] | None = field(default=None, repr=False)
+    _writing_letters: asyncio.Task[None] | None = field(default=None, repr=False)
 
     async def start(self) -> None:
         """What is done as the server starts, on its event loop: try the overrides of the
@@ -151,10 +154,12 @@ class Backend:
         self._keeping_fresh = asyncio.create_task(self.prices.catalog.keep_fresh())
         self._probing = asyncio.create_task(self.service_status.keep_probing())
         self._reaching_out = asyncio.create_task(self.reach_outs.keep_reaching_out())
+        self._writing_letters = asyncio.create_task(self.letters.keep_writing())
 
     async def aclose(self) -> None:
         """Close what `build` opened, last opened first."""
-        for task in (self._keeping_fresh, self._probing, self._reaching_out):
+        for task in (self._keeping_fresh, self._probing, self._reaching_out,
+                     self._writing_letters):
             if task is not None:
                 task.cancel()
         for close in reversed(self._closers):
@@ -369,6 +374,11 @@ def build(
         intervals=settings.reach_out_intervals,
     )
     closers.append(reach_outs.close)
+    # fork：信（GLOSSARY.md「信」）。亲近以上的角色，晚上或特殊日子写一封，放在公告里。
+    letters = Letters(
+        settings.database_path, store, engine, characters, config, affinities, clock,
+    )
+    closers.append(letters.close)
     # Her replies' speech, for the browser to play a segment at a time without a call: it
     # needs somewhere to keep the audio (the stands' bucket) and a voice to say it in, and
     # is off without either, the text then being all there is.
@@ -415,6 +425,7 @@ def build(
             settings.database_path, store, memories, characters, gift_catalog, clock
         ),
         reach_outs=reach_outs,
+        letters=letters,
         message_speech=message_speech,
         world=world,
         _closers=closers,

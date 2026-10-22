@@ -52,6 +52,7 @@ from eidolon.admin_users_api import add_admin_user_routes
 from eidolon.admin_config_api import add_admin_config_routes
 from eidolon.admin_prices_api import add_admin_price_routes
 from eidolon.announcements_api import add_announcement_routes
+from eidolon.letters import add_letter_routes
 from eidolon.gifts_api import add_gift_routes
 from eidolon.message_speech import add_message_speech_routes
 from eidolon.photos_api import add_photo_routes
@@ -361,6 +362,7 @@ def create_app(backend: Backend) -> FastAPI:
     add_admin_config_routes(app, backend)
     add_admin_price_routes(app, backend)
     add_announcement_routes(app, backend)
+    add_letter_routes(app, backend.store, backend.letters, backend.characters)
     add_gift_routes(app, backend)
     add_photo_routes(app, backend)
     if backend.message_speech is not None:

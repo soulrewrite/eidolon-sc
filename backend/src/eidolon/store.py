@@ -1329,6 +1329,18 @@ class Store:
             ))
         return current
 
+    def first_message_at(self, user_id: str, character_id: str) -> datetime | None:
+        """When the user and the character first spoke, in any of their conversations: the
+        earliest message either of them said; None before one (fork，信里的「第几个月」用它）。"""
+        with self._lock:
+            row = self._db.execute(
+                "SELECT MIN(m.created_at) FROM messages m"
+                " JOIN conversations c ON c.id = m.conversation_id"
+                " WHERE c.user_id = ? AND c.character_id = ?",
+                (user_id, character_id),
+            ).fetchone()
+        return datetime.fromisoformat(row[0]) if row and row[0] else None
+
     def last_contact(self, user_id: str, character_id: str) -> datetime | None:
         """When the user and the character were last in touch, in any of their conversations:
         her last turn recorded, or a call that connected ending, whichever was later; None

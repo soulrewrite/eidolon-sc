@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { AnnouncementBody } from "@/components/app/AnnouncementBody";
+import { LetterRow, LetterSheet } from "@/components/app/LetterSheet";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -17,6 +18,7 @@ import {
   unread,
   type Announcement,
 } from "@/lib/announcements";
+import { listLetters, markLetterRead, type Letter } from "@/lib/letters";
 import { AnnouncementsBellIcon } from "@/theme/icons";
 
 const t = copy.conversationList;
@@ -31,6 +33,9 @@ const t = copy.conversationList;
 export function Announcements({ userId }: { userId: string | null }) {
   // 最近一次拉到的；一次都没拉到时为 null，`loadFailed` 说明是还在拉还是拉不到。
   const [announcements, setAnnouncements] = useState<Announcement[] | null>(null);
+  // 信（fork）：和公告一起拉，都是「她/大家想让你看到的东西」。
+  const [letters, setLetters] = useState<Letter[]>([]);
+  const [openLetter, setOpenLetter] = useState<Letter | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
   const [isOpen, setOpen] = useState(false);
   // 打开那一刻的列表；打开时还没拉到的话，等第一次拉到的。
@@ -45,6 +50,11 @@ export function Announcements({ userId }: { userId: string | null }) {
 
   useEffect(() => {
     let cancelled = false;
+    const loadLetters = () =>
+      listLetters().then(
+        (all) => !cancelled && setLetters(all),
+        () => undefined, // 信读不到就当没有，不打扰
+      );
     const load = () =>
       listAnnouncements().then(
         (all) => {
@@ -55,9 +65,12 @@ export function Announcements({ userId }: { userId: string | null }) {
         () => !cancelled && setLoadFailed(true), // 公告不是要紧的事，不报错，保持上一次的
       );
     const onVisible = () => {
-      if (document.visibilityState === "visible") load();
+      if (document.visibilityState !== "visible") return;
+      load();
+      loadLetters();
     };
     load();
+    loadLetters();
     document.addEventListener("visibilitychange", onVisible);
     return () => {
       cancelled = true;
@@ -77,7 +90,8 @@ export function Announcements({ userId }: { userId: string | null }) {
   };
 
   return (
-    <Dialog open={isOpen} onOpenChange={openChange}>
+    <>
+      <Dialog open={isOpen} onOpenChange={openChange}>
       <DialogTrigger
         render={
           <Button
@@ -102,6 +116,19 @@ export function Announcements({ userId }: { userId: string | null }) {
         <DialogHeader>
           <DialogTitle>{t.announcements}</DialogTitle>
         </DialogHeader>
+        {letters.length > 0 && (
+          <section className="-mx-4 px-4">
+            <p className="mb-1 text-meta text-muted-foreground">{t.letters}</p>
+            <ul>
+              {letters.map((letter) => (
+                <li key={letter.id}>
+                  <LetterRow letter={letter} onClick={() => setOpenLetter(letter)} />
+                </li>
+              ))}
+            </ul>
+            <Separator className="my-3" />
+          </section>
+        )}
         {shown && shown.length > 0 ? (
           <ul className="-mx-4 max-h-[70dvh] min-h-0 overflow-y-auto px-4">
             {shown.map((a, i) => (
@@ -135,7 +162,16 @@ export function Announcements({ userId }: { userId: string | null }) {
           </Button>
         </DialogFooter>
       </DialogContent>
-    </Dialog>
+      </Dialog>
+      <LetterSheet
+        letter={openLetter}
+        onClose={() => setOpenLetter(null)}
+        onRead={(letter) => {
+          void markLetterRead(letter.id);
+          setLetters((now) => now.map((one) => (one.id === letter.id ? { ...one, read: true } : one)));
+        }}
+      />
+    </>
   );
 }
 
