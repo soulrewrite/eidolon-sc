@@ -400,7 +400,13 @@ export function LetterSheet({
           </div>
         )}
 
-        <DialogFooter className="sticky bottom-0 z-10 flex-row justify-end gap-2 bg-transparent p-2 sm:p-3">
+        <DialogFooter
+          className={cn(
+            "sticky bottom-0 z-10 flex-row justify-end gap-2 bg-transparent p-2 sm:p-3",
+            // 信封时弹窗里只有这一行在流里，粘不住底，直接钉在底部。
+            sealed && "absolute inset-x-0 bottom-0",
+          )}
+        >
           <Button
             variant="ghost"
             onClick={onClose}
