@@ -26,7 +26,6 @@ from tests.fakes import (
     Judging,
     level,
     context_of,
-    system_of,
 )
 from tests.test_affinity import keep
 from tests.test_text_turn import send_turn, start_conversation
@@ -104,11 +103,18 @@ async def test_in_trust_and_wherever_affinity_is_off_the_prompt_is_as_it_was(
     no_judge, _ = await prompted(make_client, [level(0)], settings=replace(settings, judge=None))
 
     # Each takes its turn in the same database, after the one before: but for when that was.
-    told_on, told_off, told_no_judge = (
-        [line for line in system_of(llm.prompts[0]).splitlines()
-         if not line.startswith(LAST_TALKED)]
-        for llm in (on, off, no_judge)
-    )
+    # fork：第二、三个对话会带上上一段的末尾（FORK.md「新对话接上一段」），那些是
+    # user/assistant 消息、不是系统提示词的一部分，这里只比系统提示词，免得把它们算进来。
+    def told(llm: FakeLLM) -> list[str]:
+        return [
+            line
+            for message in llm.prompts[0]
+            if message.role == "system"
+            for line in message.content.splitlines()
+            if not line.startswith(LAST_TALKED)
+        ]
+
+    told_on, told_off, told_no_judge = (told(llm) for llm in (on, off, no_judge))
     assert told_on == told_off
     assert told_no_judge == told_off
     assert IN_HER_OWN_WAY not in about_now(on)

@@ -620,7 +620,10 @@ class ConversationEngine:
         previous = self._previous_tail(conversation) if not messages else []
         turns = self._history_turns()
         # What all but the chat model read: her reach-outs the user answers her latest words.
-        history = [*previous, *latest_turns(messages, turns), *_answering(record)]
+        history = [*latest_turns(messages, turns), *_answering(record)]
+        # fork：判断（好感度、照片、情绪）也读上一段的末尾，情绪才接得上；检索不读——
+        # 检索已经在用户全部记忆里找，把上一段的原话塞进查询关键词里只会把搜索带偏。
+        judged_history = [*previous, *history]
         affinity = self._affinity(conversation)
         judging = affinity is not None and not affinity.cooling
         eligibility = self._photo_eligibility(conversation, character, photo.own)
@@ -628,7 +631,7 @@ class ConversationEngine:
         judged_apart = None
         if (judging or asking_photo) and self._retrieval is None and self._affinity_judge:
             judged_apart = asyncio.ensure_future(
-                _judged(self._affinity_judge, character, history, text, judging, asking_photo)
+                _judged(self._affinity_judge, character, judged_history, text, judging, asking_photo)
             )
         try:
             profile = self._store.get_profile(conversation.user_id)

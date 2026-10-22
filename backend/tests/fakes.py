@@ -115,6 +115,14 @@ HANG = object()
 """A chunk in a FakeLLM reply where the model stops sending but never finishes."""
 
 
+def all_system_of(prompt: Sequence[ChatMessage]) -> str:
+    """Every system message of `prompt`, wherever it sits, joined by blank lines.
+
+    fork：新对话第一轮会带上上一段的末尾（`user`/`assistant` 消息），此后 system 消息不再
+    全在开头，`system_of` 只读开头那一段就读不全——要看全部提示词的人用这个。"""
+    return "\n\n".join(message.content for message in prompt if message.role == "system")
+
+
 def system_of(prompt: Sequence[ChatMessage]) -> str:
     """What the system messages `prompt` opens with tell the model, as one text: joined by
     a blank line, as the Chat Completions adapter sends them."""
