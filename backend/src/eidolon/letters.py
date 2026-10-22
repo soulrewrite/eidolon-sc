@@ -162,7 +162,9 @@ class Letters:
         trigger = self._trigger(conversation, local, zone)
         if trigger is None:
             return
-        if self._written_today(conversation, local):
+        if self._written_today(conversation, local) or self._user_written_today(
+            conversation, local
+        ):
             return
         if self._writing:
             return
@@ -230,6 +232,18 @@ class Letters:
     def _written_today(self, conversation: Conversation, local: datetime) -> bool:
         last = self._last_delivered(conversation)
         return last is not None and last.astimezone(local.tzinfo).date() == local.date()
+
+    def _user_written_today(self, conversation: Conversation, local: datetime) -> bool:
+        """Whether he has had a letter today from anyone: one an evening is enough, not one
+        per close character at once."""
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT delivered_at FROM letters WHERE user_id = ? ORDER BY delivered_at DESC LIMIT 1",
+                (conversation.user_id,),
+            ).fetchone()
+        if rows is None:
+            return False
+        return datetime.fromisoformat(rows["delivered_at"]).astimezone(local.tzinfo).date() == local.date()
 
     def _last_delivered(self, conversation: Conversation) -> datetime | None:
         with self._lock:

@@ -111,3 +111,17 @@ async def test_nothing_is_written_in_the_morning(make_client: ClientFactory, set
     await backend_of(client).letters.deliver_due()
 
     assert letters_of((await client.get("/api/letters")).json()) == []
+
+
+async def test_one_letter_an_evening_whatever_the_characters(
+    make_client: ClientFactory, settings: Settings
+):
+    """亲近的角色不止一个，晚上也只来一封：一人一封会像刷屏。"""
+    client, llm, clock, mano = await talked(make_client, LETTER, LETTER, LETTER)
+    keep(settings.database_path, "producer", 70, clock.now, character="mano")
+    keep(settings.database_path, "producer", 70, clock.now, character="kogane")
+    await start_conversation(client, "kogane")
+
+    await backend_of(client).letters.deliver_due()
+
+    assert len(letters_of((await client.get("/api/letters")).json())) == 1
