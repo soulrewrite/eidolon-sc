@@ -277,7 +277,7 @@ components:
 
 **The Night Edge Rule.** 深色模式下每个浮层都要比页面高一层色调并带边线，边线和浮层底、页面底都 ≥ 3:1；浅色模式下靠阴影就够。
 
-**The Letter Desk Rule.** 信（LetterSheet）在桌面上打开：弹层自己的底是压暗的桌面（--letter-scene，纸两种模式都是米白，所以桌面两种模式都偏深；深色模式取比页面高一档），两张纸放在上面，纸是这里唯一有投影的东西（纸是实物；The Flat Rule 管的是界面元素）。桌面上的字（关闭键）用 --letter-scene-ink，在 --letter-scene 上 ≥ 4.5。手机上纸铺满整屏，没有桌面。
+**The Letter Desk Rule.** 信（LetterSheet）在桌面上打开：弹层的底是她的通话背景（`letter.background_url`），上面压一层很淡的暗（自上而下约 18% → 34%），不模糊；两张纸是米白实底（洗涤色 0.93 / 0.95）压在上面，纸是这里唯一有投影的东西（纸是实物；The Flat Rule 管的是界面元素）。背景挂在滚动容器自己身上（background-attachment 默认 scroll），滚动正文时不动。关闭键是深色半透明胶囊，压在任何一张背景上都 ≥ 4.5。没有背景图的角色退回 `--letter-scene` 的深色底。手机上纸铺满整屏，看不到背景，只有关闭键是同一个胶囊。
 
 ## Shapes
 

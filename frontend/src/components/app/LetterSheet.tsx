@@ -43,7 +43,7 @@ function Sheet({
   row,
   compact,
   children,
-  wash = 0.66,
+  wash = 0.93,
 }: {
   letter: Letter;
   look: LetterLook;
@@ -152,6 +152,18 @@ export function LetterSheet({
     <Dialog open={letter !== null} onOpenChange={(open) => !open && onClose()}>
       <DialogContent
         showCloseButton={false}
+        // 桌面：她的通话背景铺满弹层，只压一点暗，纸是米白实底压在上面（DESIGN.md「The Letter Desk Rule」）。
+        // 背景挂在滚动容器自己身上（background-attachment 默认 scroll），滚动正文时不会跟着跑。
+        // 手机上纸铺满整屏，这张图看不见，行为不变。
+        style={
+          letter?.background_url
+            ? {
+                backgroundImage: `linear-gradient(180deg, rgba(20, 16, 14, .18), rgba(20, 16, 14, .34)), url(${letter.background_url})`,
+                backgroundSize: "cover, cover",
+                backgroundPosition: "center, center",
+              }
+            : undefined
+        }
         className={cn(
           "no-scrollbar gap-0 overflow-y-auto p-0",
           // 手机：整屏。四边贴住，别用 100vw——它把滚动条那点宽度也算进去，会横向溢出。
@@ -168,15 +180,6 @@ export function LetterSheet({
         {letter && look && greeting && (
           // 两张纸等高：中文那页通常短一截，多出来的横线就当还没写到的信纸，桌面不会空一块。
           <div className="relative flex flex-col gap-2 p-0 sm:flex-row sm:items-stretch sm:gap-6 sm:p-6">
-            {/* 桌面顶上那点光：中间稍亮、四周按下去，纸才像放在桌上，而不是贴在白板上。 */}
-            <div
-              aria-hidden
-              className="pointer-events-none absolute inset-0 hidden sm:block"
-              style={{
-                background:
-                  "radial-gradient(120% 90% at 50% -20%, rgba(255, 255, 255, .11), transparent 62%)",
-              }}
-            />
             <Sheet letter={letter} look={look} row={row} compact={compact}>
               <div
                 className="flex items-baseline justify-end gap-2 tabular-nums"
@@ -243,7 +246,7 @@ export function LetterSheet({
               </div>
             </Sheet>
 
-            <Sheet letter={letter} look={look} row={row} compact={compact} wash={0.78}>
+            <Sheet letter={letter} look={look} row={row} compact={compact} wash={0.95}>
               <p
                 className="text-right"
                 style={{
@@ -275,12 +278,12 @@ export function LetterSheet({
           </div>
         )}
 
-        <DialogFooter className="sticky bottom-0 flex-row justify-end gap-2 bg-background/85 p-2 backdrop-blur sm:bg-transparent sm:p-3 sm:backdrop-blur-none">
+        <DialogFooter className="sticky bottom-0 flex-row justify-end gap-2 bg-background p-2 sm:bg-transparent sm:p-3">
           <Button
             variant="ghost"
             onClick={onClose}
-            // 桌面上的钮压在深色桌面上：悬停用桌面自己的亮色，别用中性的浅灰底。
-            className="sm:hover:bg-white/10 sm:hover:text-letter-scene-ink"
+            // 深色半透明胶囊：桌面压在她们的背景上、手机压在纸上都一样能读。
+            className="rounded-full bg-black/35 px-5 text-white backdrop-blur-sm hover:bg-black/45 hover:text-white"
           >
             {copy.common.close}
           </Button>
