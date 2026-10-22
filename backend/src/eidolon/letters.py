@@ -285,7 +285,7 @@ class Letters:
         if self._memory is None:
             return
         gist = "".join(s.zh.strip() for s in segments if s.zh)[:120]
-        text = f"我给制作人写了一封信（{local.month}月{local.day}日）：{gist}……"
+        text = f"〔信〕{local.month}月{local.day}日我写给制作人一封信，信里说：{gist}……"
         try:
             self._memory.note_letter(
                 conversation.user_id,

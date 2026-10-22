@@ -870,6 +870,10 @@ _REACHING_OUT = (
 )
 
 
+_LETTER_MARK = "〔信〕"
+"""她写给制作人的信的记忆以此开头（fork）。"""
+
+
 def _holding(memories: Sequence[Memory], character_id: str | None = None) -> list[Memory]:
     """Those of `memories` that still hold, only those told to `character_id` if given."""
     return [
@@ -886,7 +890,10 @@ def _memories_prompt(
     lines = ["# 关于制作人的记忆", opening]
     for memory in memories:
         when = _date(datetime.fromisoformat(memory.created_at).astimezone(ZoneInfo(timezone)))
-        if memory.source_character_id == character.id:
+        if memory.text.startswith(_LETTER_MARK):
+            # 她写给制作人的信（fork）：不是制作人告诉她的，是她自己做过的事。
+            lines.append(f"- {memory.text[len(_LETTER_MARK):]}（{when}，是你自己做的事）")
+        elif memory.source_character_id == character.id:
             lines.append(f"- {memory.text}（{when}，制作人对你说的）")
         else:
             name = memory.source_character_name or ANOTHER_IDOL
