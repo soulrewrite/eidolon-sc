@@ -55,7 +55,7 @@ function Sheet({
 }) {
   return (
     <div
-      className="relative overflow-hidden shadow-[0_1px_1px_rgba(0,0,0,.07),0_14px_30px_-14px_rgba(0,0,0,.4)] sm:rounded-[2px]"
+      className="relative overflow-hidden shadow-[0_1px_1px_rgba(0,0,0,.07),0_14px_30px_-14px_rgba(0,0,0,.4)] sm:min-w-0 sm:flex-1 sm:rounded-[2px]"
       style={{
         padding: compact ? "22px 16px 18px 34px" : "30px 34px 22px 54px",
         color: ink(letter.color, look.ink),
@@ -140,17 +140,22 @@ export function LetterSheet({
       <DialogContent
         showCloseButton={false}
         className={cn(
-          "max-h-[calc(100dvh-2rem)] gap-0 overflow-y-auto p-0",
-          "sm:max-w-lg",
+          "gap-0 overflow-y-auto p-0",
+          // 手机：整屏。没有浮层的边、圆角和外面，纸就是屏幕。
+          "max-sm:inset-0 max-sm:top-0 max-sm:left-0 max-sm:h-dvh max-sm:w-screen",
+          "max-sm:max-w-none max-sm:translate-x-0 max-sm:translate-y-0 max-sm:rounded-none",
+          "max-sm:bg-transparent max-sm:ring-0",
+          // 桌面：一张压暗的桌上放一张纸。
+          "sm:max-h-[calc(100dvh-2rem)] sm:max-w-4xl sm:rounded-xl sm:bg-popover sm:ring-1 sm:ring-foreground/10",
           // 打开时像把纸展开：从上面压开一点，同时淡入。
           "motion-safe:data-[state=open]:animate-letter-unfold",
         )}
       >
         {letter && look && greeting && (
-          <div className="flex flex-col gap-3 bg-muted p-2 sm:rounded-lg sm:p-3">
+          <div className="flex flex-col gap-2 p-0 sm:flex-row sm:items-start sm:gap-4 sm:rounded-lg sm:bg-muted sm:p-4">
             <Sheet letter={letter} look={look} row={row} compact={compact}>
-              <p
-                className="text-right tabular-nums"
+              <div
+                className="flex items-baseline justify-end gap-2 tabular-nums"
                 style={{
                   lineHeight: "var(--row)",
                   fontSize: compact ? 11.5 : 12.5,
@@ -158,8 +163,21 @@ export function LetterSheet({
                   color: ink(letter.color, 26),
                 }}
               >
-                {letterDay(letter.delivered_at)}
-              </p>
+                {reasonOf(letter) && (
+                  <span
+                    className="rounded-full px-2 text-[10px] tracking-normal"
+                    style={{
+                      borderWidth: 1,
+                      borderStyle: "solid",
+                      borderColor: `color-mix(in srgb, ${letter.color} 45%, transparent)`,
+                      color: ink(letter.color, 40),
+                    }}
+                  >
+                    {reasonOf(letter)}
+                  </span>
+                )}
+                <span>{letterDay(letter.delivered_at)}</span>
+              </div>
               <DialogTitle
                 className="text-start font-normal"
                 style={{ lineHeight: "var(--row)", fontSize: compact ? 14 : 15 }}
@@ -170,7 +188,7 @@ export function LetterSheet({
                 {rest.map((segment, i) => (
                   <p
                     key={i}
-                    className="m-0 text-justify"
+                    className={compact ? "m-0" : "m-0 text-justify"}
                     style={{
                       lineHeight: "var(--row)",
                       fontSize: compact ? 14 : 15,
@@ -216,7 +234,7 @@ export function LetterSheet({
               {body.map((segment, i) => (
                 <p
                   key={i}
-                  className="m-0 text-justify"
+                  className={compact ? "m-0" : "m-0 text-justify"}
                   style={{
                     lineHeight: "var(--row)",
                     fontSize: compact ? 13 : 13.5,
@@ -233,16 +251,11 @@ export function LetterSheet({
           </div>
         )}
 
-        <DialogFooter className="sticky bottom-0 flex-row justify-end gap-2 bg-background/90 p-3 backdrop-blur">
+        <DialogFooter className="sticky bottom-0 flex-row justify-end gap-2 bg-background/85 p-2 backdrop-blur sm:bg-transparent sm:p-3 sm:backdrop-blur-none">
           <Button variant="ghost" onClick={onClose}>
             {copy.common.close}
           </Button>
         </DialogFooter>
-        {letter && reasonOf(letter) && (
-          <Badge variant="secondary" className="absolute top-4 left-4">
-            {reasonOf(letter)}
-          </Badge>
-        )}
       </DialogContent>
     </Dialog>
   );

@@ -168,12 +168,22 @@ class GoogleProvider:
 
 
 def open_identity_providers(
-    github: OAuthSettings | None, google: OAuthSettings | None
+    github: OAuthSettings | None,
+    google: OAuthSettings | None,
+    proxy: str | None = None,
 ) -> dict[ProviderName, IdentityProvider]:
-    """The providers that are configured."""
+    """The providers that are configured. `proxy`, where the deployer sends identity calls
+    through one (fork): only GitHub's own hosts go through it — `api.github.com` is reachable
+    directly and behind a proxy answers 403, so it must stay direct."""
+    mounts: dict[str, httpx.AsyncHTTPTransport] = {}
+    if proxy:
+        # 只把 github.com 送出去（OAuth 换 token 在这里）；api.github.com 直连，
+        # 走代理会 403。
+        mounts["all://github.com"] = httpx.AsyncHTTPTransport(proxy=proxy)
+    client = httpx.AsyncClient(timeout=_TIMEOUT, mounts=mounts) if mounts else None
     providers: dict[ProviderName, IdentityProvider] = {}
     if github is not None:
-        providers["github"] = GitHubProvider(github)
+        providers["github"] = GitHubProvider(github, client=client)
     if google is not None:
         providers["google"] = GoogleProvider(google)
     return providers

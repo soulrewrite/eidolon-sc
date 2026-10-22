@@ -49,7 +49,7 @@ generation, whose photos count by whose they are on alone."""
 
 ProxiedService = Literal[
     "chat_llm", "memory_llm", "judge", "embedding", "rerank", "tts", "stt", "image",
-    "own_llm", "own_tts", "own_stt", "own_image",
+    "own_llm", "own_tts", "own_stt", "own_image", "identity",
 ]
 """What may reach its provider through the proxy (GLOSSARY.md「网络代理」): the deployer's
 services, the chat model, in text turns and calls alike; the memory model; the judge

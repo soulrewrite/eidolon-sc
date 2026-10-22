@@ -206,7 +206,9 @@ def build(
     store = Store(settings.database_path)
     closers.append(store.close)
     if identity_providers is None:
-        identity_providers = open_identity_providers(settings.github, settings.google)
+        identity_providers = open_identity_providers(
+            settings.github, settings.google, settings.proxy.proxy_for("identity")
+        )
         closers.extend(p.aclose for p in identity_providers.values())
     # Users' own DashScope keys hear with the deployer's model, or the default one where the
     # deployer chose Soniox.
