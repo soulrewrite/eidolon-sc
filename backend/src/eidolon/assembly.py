@@ -384,6 +384,7 @@ def build(
     letters = Letters(
         settings.database_path, store, engine, characters, config, affinities, clock,
         envelopes=Envelopes(settings.database_path.parent / "cards"),
+        memory=memories,
     )
     closers.append(letters.close)
     # Her replies' speech, for the browser to play a segment at a time without a call: it

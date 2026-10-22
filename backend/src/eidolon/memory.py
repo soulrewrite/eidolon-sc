@@ -306,6 +306,24 @@ class Memories:
             if progress is not None:
                 progress(done)
 
+    def note_letter(
+        self,
+        user_id: str,
+        character_id: str,
+        conversation_id: str,
+        text: str,
+        when: datetime,
+    ) -> None:
+        """她写给制作人的一封信，记成一条来源是她自己的记忆：以后她提到这封信时，
+        知道是自己写过的。向量在后台补（`embed_carried`），检索时不会等它。"""
+        with self._lock, self._db:
+            self._db.execute(
+                "INSERT INTO memories (user_id, source_character_id, conversation_id, text,"
+                " created_at) VALUES (?, ?, ?, ?, ?)",
+                (user_id, character_id, conversation_id, text, when.isoformat()),
+            )
+        self.embed_carried(user_id)
+
     def embed_carried(self, user_id: str) -> None:
         """Embed, in the background, the user's memories that have no vector yet, as those
         carried in by a data package (`add_carried`), with the deployer's embedder; those it

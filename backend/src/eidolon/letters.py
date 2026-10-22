@@ -25,6 +25,7 @@ from eidolon.database import connect
 from eidolon.characters import Character
 from eidolon.clock import Clock
 from eidolon.letter_envelopes import Envelopes
+from eidolon.memory import Memories
 from eidolon.live_config import LiveConfig
 from eidolon.engine import ConversationEngine
 from eidolon.reply_format import Segment
@@ -126,6 +127,7 @@ class Letters:
         affinities: Affinities,
         clock: Clock,
         envelopes: "Envelopes | None" = None,
+        memory: "Memories | None" = None,
     ) -> None:
         self._store = store
         self._engine = engine
@@ -134,6 +136,7 @@ class Letters:
         self._affinities = affinities
         self._clock = clock
         self._envelopes = envelopes
+        self._memory = memory
         self._lock = threading.Lock()
         self._db = connect(path)
         self._db.row_factory = sqlite3.Row
@@ -199,6 +202,7 @@ class Letters:
                 else None
             )
             self._keep(conversation, segments, trigger, now, envelope)
+            self._remember(conversation, segments, local)
             log.info("a letter from %s (%s)", conversation.character_id, trigger)
         finally:
             self._writing = False
@@ -273,6 +277,25 @@ class Letters:
                 (conversation.user_id, conversation.character_id),
             ).fetchone()
         return datetime.fromisoformat(row["delivered_at"]) if row else None
+
+    def _remember(
+        self, conversation: Conversation, segments: Sequence[Segment], local: datetime
+    ) -> None:
+        """把这封信写进她的记忆：来源是她自己，内容是一句中文的概要。"""
+        if self._memory is None:
+            return
+        gist = "".join(s.zh.strip() for s in segments if s.zh)[:120]
+        text = f"我给制作人写了一封信（{local.month}月{local.day}日）：{gist}……"
+        try:
+            self._memory.note_letter(
+                conversation.user_id,
+                conversation.character_id,
+                conversation.id,
+                text,
+                local,
+            )
+        except Exception:
+            log.warning("could not remember the letter", exc_info=True)
 
     def _keep(
         self,
