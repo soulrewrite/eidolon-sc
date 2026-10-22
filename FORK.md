@@ -1,57 +1,60 @@
 # 这个 fork 与上游的差异
 
-本仓库是 [Sallyn0225/eidolon-sc](https://github.com/Sallyn0225/eidolon-sc) 的 fork，只服务于自己那台部署
-  
-（`eidolon-sc.tail6eaf6c.ts.net`）。上游的改动照常从 `upstream` 拉，这里的改动一律写在下面这份清单里，
-  
-方便以后合并上游时知道自己动过什么。
+[Sallyn0225/eidolon-sc](https://github.com/Sallyn0225/eidolon-sc) 的 fork，只跑在自己那台部署上
+（`eidolon-sc.tail6eaf6c.ts.net`，Tailscale 内网）。上游的改动照常从 `upstream` 拉；这里动过什么，都按下面的
+编号记着，方便以后合并时知道要解哪些冲突。
 
-- **基线**：上游 `4b869539`（2026-10-20 17:22:50，`feat/daily-tasks` 的 merge）。
-    
-  这个是当时正在跑的生产版本，**刻意没有追上游最新**：`8a31a358` 之后上游多了成就系统（achievements）
-    
-  和新角色 hazuki，没有在这台机器上验过，不跟着走。
-- **定向移植**：`7eb50984`（新角色七草はづき）已单独搬进来（见下面的「叶月」一节），
-    
-  成就、通话上限、性能等其余上游提交都不要。
-- **远端**：
-  - `origin` = `https://github.com/soulrewrite/eidolon-sc.git`（自己的 fork，CI 从这里构建镜像）
-  - `upstream` = `https://github.com/Sallyn0225/eidolon-sc.git`
+- **远端**：`origin` = `https://github.com/soulrewrite/eidolon-sc.git`（CI 从这里构建镜像），
+  `upstream` = `https://github.com/Sallyn0225/eidolon-sc.git`
+- **基线**：上游 `4b869539`（2026-10-20，`feat/daily-tasks` 的 merge，当时的生产版本）。
+  此后只做**定向移植**，没有整块 merge 过上游。
+- **已移植的上游提交**：`44a3657e`（成就系统）、`7eb50984`（叶月）。其余（通话上限、性能、发布流程）都还没进来。
+  详见「一、新增功能」里标着「上游移植」的两节。
 
-## 改了什么
+## 部署需要的外联
 
-### 1. 镜像推到自己的 GHCR（部署基建）
+这台机器实际连的服务，`.env` 里逐项可改。
 
-| 文件                         | 改动                                                       |
-| -------------------------- | -------------------------------------------------------- |
-| `.github/workflows/ci.yml` | `images: ghcr.io/sallyn0225/…` → `ghcr.io/soulrewrite/…` |
-| `docker-compose.prod.yml`  | 两个服务的 `image:` 同上                                        |
-| `.github/dependabot.yml`   | 忽略的依赖名同上                                                 |
+| 用途 | 服务 | 关键环境变量 | 备注 |
+| --- | --- | --- | --- |
+| 对话模型 | DeepSeek `deepseek-flash` | `CHAT_LLM_BASE_URL` / `CHAT_LLM_MODEL` / `CHAT_LLM_API_KEY` | `https://api.deepseek.com` |
+| 判断模型（好感度、情绪、照片） | Jev @ OpenRouter | `JUDGE_PROVIDER=jev`、`JEV_API_KEY` | 没有它就没有好感度、没有照片判断 |
+| 语音合成 TTS | Fish Audio `s2.1-pro-free` | `FISH_AUDIO_API_KEY` / `FISH_AUDIO_MODEL` | **必须走代理**，直连不通 |
+| 语音识别 STT | 阿里云百炼 | `STT_PROVIDER=bailian`、`DASHSCOPE_API_KEY` | 通话时用 |
+| 向量 + 重排 | 硅基流动 | `EMBEDDING_PROVIDER=siliconflow`、`EMBEDDING_MODEL=Qwen/Qwen3-Embedding-0.6B`、`RERANK_MODEL=Qwen/Qwen3-Reranker-0.6B`、`SILICONFLOW_API_KEY` | 剧情检索、记忆检索 |
+| 生图 | **TensorArt**（用 NovelAI 形态的客户端说话） | `NOVELAI_API_FORMAT=tensorart`、`NOVELAI_BASE_URL=https://openapi.tensor.art/openworks/v1`、`NOVELAI_MODEL=anime_lab_wai_illustrious` | **必须走代理**；变量名沿用 `NOVELAI_*`，因为客户端就是照着 NovelAI 那套写的，只有 `api_format` 决定打哪个服务 |
+| 立绘 / 语音存储 | 腾讯云 COS（`sc-1305781570`，广州） | `EIDOLON_STAND_S3_*`、`EIDOLON_STAND_ASSETS_URL` | S3 兼容接口 |
+| 登录 | GitHub OAuth | `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | 走 GitHub 必须直连（走代理 403） |
+| 代理 | mihomo（`127.0.0.1:7891`） | `EIDOLON_PROXY_URL`、`EIDOLON_PROXY_SERVICES=tts,image` | **只有 TTS 和生图走代理**；国内 API 直连快得多 |
 
-上游的 CI 把镜像推到上游作者的 GHCR，fork 没有写权限；不改这三处，push 后 CI 会在推送那一步失败。
+其余与部署有关的：
 
-> 服务器上实际跑的是 `docker-compose.custom.yml`（不在仓库里，含 TURN secret），它的 `image:` 也指向
->   
-> `ghcr.io/soulrewrite/…`。**改镜像地址时两边都要改。**
+- 限额全部关掉：`EIDOLON_TURNS_PER_HOUR=0`、`EIDOLON_CALLS_PER_HOUR=0`、`EIDOLON_PHOTOS_PER_HOUR=0`（0 = 不限）
+- 搭话开着：`EIDOLON_REACH_OUTS=1`；间隔见「5」
+- 域名是 Tailscale 证书（`eidolon-sc.tail6eaf6c.ts.net`），**不是公网**
+- `docker` 守护进程**不要**配代理：镜像在 ghcr.io，直连能拉，配了代理反而在机场挂掉时全线失败
 
-### 2. 消息语音（新增功能，上游没有）
+---
 
-文字对话里每一句日语前一个播放键，点一下她就把这句说出来，不用打电话。
+# 一、新增功能
 
-| 文件                                                           | 改动                                                                                                                                                              |
-| ------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `backend/src/eidolon/message_speech.py`                      | **新文件**。`MessageSpeech`：内容寻址（voice_id + 说出来的话 + 模型 + 读音表 → sha256）→ 存储桶 `message-speech/`；桶里没有就用 Fish Audio 的 HTTP API 合成再放进去。`add_message_speech_routes` 挂两个路由 |
-| `backend/src/eidolon/s3.py`                                  | `Bucket.exists()`（HEAD，404 不算错）；`_send()` 多一个 `allowed` 状态码白名单                                                                                                  |
-| `backend/src/eidolon/store.py`                               | `message_segments()` 与 `reach_out_segments()`：按 id 取她说的话，限本人可见（搭话在 `reach_outs` 表，id 空间和 messages 分开）                                                           |
-| `backend/src/eidolon/assembly.py`                            | `Backend.message_speech`；`build` 里构造，缺存储桶或 Fish key 时为 `None`，功能整体关闭                                                                                            |
-| `backend/src/eidolon/app.py`                                 | 挂路由；回合里 `SegmentComplete` 一到就 `create_task(warm(...))` 预合成                                                                                                      |
-| `frontend/src/lib/messageSpeech.ts`                          | **新文件**。取地址 + localStorage 开关                                                                                                                                   |
-| `frontend/src/components/conversations/useSpeechPlayer.ts`   | **新文件**。一个页面一个 `Audio`，同时只放一句                                                                                                                                   |
-| `frontend/src/components/conversations/ConversationView.tsx` | 气泡里每段日语前的播放键 `SpeechKey`、页首的音符开关                                                                                                                                |
-| `frontend/src/theme/icons.ts`                                | `SpeechOnIcon`/`SpeechOffIcon`/`SpeechPlayIcon`/`SpeechPauseIcon`                                                                                               |
-| `frontend/src/i18n/zh.ts`                                    | `conversation.speech*` 几条文案                                                                                                                                     |
-| `GLOSSARY.md`                                                | 新增「消息语音」词条                                                                                                                                                      |
-| `docs/configuration.md`                                      | 新增「消息语音」一节                                                                                                                                                      |
+上游没有的，或者从上游单独搬进来的。按加入顺序编号。
+
+## 1. 消息语音（上游没有）
+
+文字对话里每句日语前面有个播放键，点一下她把这句说出来，不用打电话。
+
+| 文件 | 改动 |
+| --- | --- |
+| `backend/src/eidolon/message_speech.py` | **新文件**。`MessageSpeech`：内容寻址（voice_id + 说出来的话 + 模型 + 读音表 → sha256）→ 桶里 `message-speech/`；没有就调 Fish Audio 合成再放进去 |
+| `backend/src/eidolon/s3.py` | `Bucket.exists()`（HEAD，404 不算错）；`_send()` 多一个 `allowed` 状态码白名单 |
+| `backend/src/eidolon/store.py` | `message_segments()` / `reach_out_segments()`：按 id 取她说的话，限本人可见 |
+| `backend/src/eidolon/assembly.py` | `Backend.message_speech`；缺桶或 Fish key 时为 `None`，功能整体关闭 |
+| `backend/src/eidolon/app.py` | 挂路由；回合里 `SegmentComplete` 一到就预合成 |
+| `frontend/src/lib/messageSpeech.ts` | **新文件**。取地址 + localStorage 开关 |
+| `frontend/src/components/conversations/useSpeechPlayer.ts` | **新文件**。一个页面一个 `Audio`，同时只放一句 |
+| `frontend/src/components/conversations/ConversationView.tsx` | 气泡里的播放键 `SpeechKey`、页首的音符开关 |
+| `frontend/src/theme/icons.ts`、`i18n/zh.ts`、`GLOSSARY.md`、`docs/configuration.md` | 图标、文案、词条、配置文档 |
 
 接口：
 
@@ -60,164 +63,65 @@
 
 只有对话的主人能问，别人（包括管理者）一律 404；合成不出来 503。合成走部署者的 key，不计限额。
 
-### 3. 搭话可以说满几句（改动上游行为）
+## 2. 信（上游没有）
 
-上游的规则是「她搭过一次话，用户不回就再也不说」。这个 fork 放开了：
+亲近以上的角色，晚上给你写一封信，放在**公告**里。
 
-| 文件                                  | 改动                                                                                                                            |
-| ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `backend/src/eidolon/reach_outs.py` | `SILENCE`（一次沉默最多说几句：亲密 3、亲近/信任 2）、`FOLLOW_UP = 6`（后续每句间隔是档位间隔的六分之一）；`_count_since()` 数这一轮说了几句；`_birthday_waiting()` 让生日当天不等档位 |
-| `backend/src/eidolon/store.py`      | `reach_outs_since()`；`add_reach_out()` 多 `since` 参数，只拒绝「同一时刻的另一次搭话」，不再因为「搭过」就拒                                                |
-| `backend/tests/test_reach_outs.py`  | 新增「一次沉默说满两句就停」；改写「等用户回答」那条，期望值从 `(1,2,3)` 变 `(2,3,3,3)`                                                                       |
-| `GLOSSARY.md`                       | 「搭话」词条补上连说和生日的规则                                                                                                              |
+**谁写、什么时候**（`backend/src/eidolon/letters.py`）
 
-> **合并上游时要注意**：`Store.add_reach_out` 的签名变了（多了 `since`）。上游如果改了这里，冲突要手工解。
+- 只有 `TIERS = ("close", "intimate")`；冷却 `GAP_DAYS = (3, 7)` 天（每封抽一次）
+- **每人每天最多一封**，不论是谁写的（亲近的有好几位，一人一封会像刷屏）
+- 普通信在生产者的 `EVENING = (18:00, 22:00)` 里抽一分钟；抽签用 sha256，同一天多次 tick 不会变
+- 特殊日子**当天就来**、不等晚上：制作人生日、第一次说话之后每满 30 天
 
-### 4. 生图换成 TensorArt（WAI Illustrious），提示词放宽
+**写什么**（`engine.letter`）
 
-上游演示的部署用硅基流动的 Kolors；Kolors 没在 Danbooru 上训练过，**不认识
-  
-`morino rinze` 这类角色 tag**，只能按外貌 tag 画个“黑发红眼的女孩”，所以照片不是本人。
+- 与搭话同一套提示词骨架：人设、世界设定、最新记忆、最近对话（含上一段的末尾）
+- 结尾换成 `LETTER_RULES`：这是信，有称呼有落款；写平时当面说不出口的话；引一件具体的事；四到六段
+- 产出仍是 `<ja>…</ja><zh>…</zh>`，和消息同一种结构，逐句双语
 
-| 文件                                                      | 改动                                                                                                                                                                                                                            |
-| ------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `backend/src/eidolon/config.py`                         | `ImageFormat` 多一个 `"tensorart"`                                                                                                                                                                                               |
-| `backend/src/eidolon/image_generation.py`               | `_tensorart`：`POST {base}/task` 建任务 → 每 3 秒 `POST {base}/task/query` → 从签名的 outputs 地址取图。认证是 `Echo-Access-Key` 头（不是 Bearer），还必须带浏览器 User-Agent，否则 Cloudflare 403 code 1010；INTEGER 输入要传原生数字，传字符串会 500。`TIME_LIMIT` 90 → 160 秒 |
-| `backend/src/eidolon/photo_prompt.py`                   | `rating:general` → `rating:sensitive`；新增 `CHARM_TAGS`（beautiful detailed eyes / soft lighting / delicate features）；负面词去掉 `cleavage`，nude/underwear/see-through 这些仍然挡                                                          |
-| `backend/tests/test_image_service.py`                   | 新增 TensorArt 的建任务/轮询/取图用例                                                                                                                                                                                                     |
-| `backend/tests/test_photos.py`、`test_photo_all_ages.py` | 断言里的提示词尾部同步                                                                                                                                                                                                                   |
+**怎么读**
 
-**这个接口只吃 4 个参数**（prompt / width / height / count）：`negative_prompt`、`seed`、
-  
-`steps`、`cfg` 都传不进去。要全参数得注册 TensorArt 的 Application 走 TAMS API
-  
-（`ap-east-1.tensorart.cloud/v1/jobs`），skills key 调它会 `app not found`。
+- `GET /api/letters`（最新在前）、`POST /api/letters/{id}/read`
+- 公告弹窗里多一段「信」；点开是一张信纸：她的通话背景压暗去色透在下面，衬线体，
+  日文在上字幕在下，末尾落款，打开即已读
 
-**服务器必须走代理**：`openapi.tensor.art` 在国内被 DNS 污染（解析到 Facebook 的 IP），
-  
-`.env` 的 `EIDOLON_PROXY_SERVICES` 因此是 `tts,image`。
+**还没做**：约定检测（「下周带你去吃那家店」）；信里带照片、随信附礼物。
 
-### 5. 落地页的声音开关（视觉改动）
+## 3. 新对话接上一段（上游没有，改了上游行为）
 
-| 文件                                        | 改动                                            |
-| ----------------------------------------- | --------------------------------------------- |
-| `frontend/src/app/(landing)/Spectrum.tsx` | 「声音 开/关」的文字按钮 → 内联音符 SVG（`aria-pressed` 区分开关） |
-| `frontend/src/app/(landing)/landing.css`  | `.lp-sound` 改成图标按钮；关掉时音符变暗并划一道斜线              |
+上游是「一段对话只读自己那段记录」（`test_conversations_are_kept_apart` 就守着这条），跨对话只靠散点记忆，
+于是「新建对话」在体感上等于失忆。
 
-**文案没动**（`copy.sound` / `soundOn` / `soundOff` 仍用于 `aria-label`），所以落地页的字体子集
-  
-（`frontend/src/app/(landing)/fonts/`）不用重新生成。以后如果要改这里的文案，记得跑
-  
-`node scripts/landing-fonts.mts`，否则 `fonts/coverage.test.ts` 会挂。
+本 fork：新的一段对话**第一轮**把同角色上一段的最后 `RECAP_TURNS = 4` 轮接进历史。
 
-## 数据库备份（本 fork 自己的做法）
+- `store.conversation_before()` 找上一段；`engine._reply` 拼在历史前面
+- **检索不读它**（`history` 保持原样），只有聊天模型和判断模型（好感度、照片、情绪）读
+  —— 上一段的原话塞进 embedding 查询会把搜索带偏
+- 只接第一轮（不烧上下文），只接**同一个角色**的（有测试守着）
 
-上游的 `deploy/db-backup.sh` 走 age 加密 + S3 兼容桶（ADR-0012），这台机器没有配桶，
-  
-所以另写了一个更简单的，每天凌晨 4 点跑：
+### 3.1 搭话也接得上
 
-```sh
-# 服务器上：/home/ubuntu/eidolon-db-backup.sh（仓库里是 deploy/db-backup-simple.sh）
-0 4 * * * /home/ubuntu/eidolon-db-backup.sh     # ubuntu 用户的 crontab
-```
+这一段她说过的还不到 4 轮时，搭话的提示词也带上上一段的末尾——否则规则叫她「先接着最近聊过的事」，
+她手里却没有那件事，只能发一句空问候。检索用的 `last_turn_query` 跟着取上一段最后一句。
 
-- 用容器里的 `sqlite3` **在线备份 API**（WAL 模式下直接 cp 文件会拿到不一致的快照）
-- 备份前跑 `PRAGMA integrity_check`
-- 存 `/home/ubuntu/eidolon-backup/eidolon-YYYYMMDD-HHMM.db.gz`，**保留 14 天**（最新一份不删）
-- 日志追加到同目录的 `backup.log`；退出码 0 成功、2 导出/检查失败、5 容器没跑
-- 恢复：`gzip -dc ...db.gz > /data/eidolon.db`（容器停掉再换）
+## 4. 搭话可以说满几句（改了上游行为）
 
-一份约 70MB，14 天约 1GB。
+上游是「搭过一次，用户不回就再也不说」。这里放开：
 
-## 怎么把上游的新东西合进来
+| 文件 | 改动 |
+| --- | --- |
+| `backend/src/eidolon/reach_outs.py` | `SILENCE`（一次沉默最多说几句：亲密 3、亲近/信任 2）、`FOLLOW_UP = 6`（后续每句间隔是档位间隔的六分之一）、`_count_since()`、`_birthday_waiting()` |
+| `backend/src/eidolon/store.py` | `reach_outs_since()`；`add_reach_out()` 多 `since` 参数，只拒绝「同一时刻的另一次搭话」 |
+| `backend/tests/test_reach_outs.py` | 「说满两句就停」；「等用户回答」的期望从 `(1,2,3)` 改成 `(2,3,3,3)` |
+| `GLOSSARY.md` | 「搭话」补上连说和生日的规则 |
 
-```sh
-git fetch upstream main
-git log --oneline 4b869539..upstream/main      # 先看有什么
-git merge upstream/main                        # 或 git rebase upstream/main
-```
+> **合并上游时要注意**：`Store.add_reach_out` 签名变了（多 `since`），上游改到这里要手工解。
 
-合并后：
+## 5. 搭话间隔可调（上游是写死的）
 
-1. 看上面「合并时要注意」那个 `add_reach_out` 签名冲突。
-2. 重跑：后端 `uv run ruff check && uv run pyright && uv run pytest`；
-     
-   前端 `npm run typecheck && npm test && sh scripts/check-discipline.sh`。
-3. 把本文开头的「基线」改成新的提交号。
-4. push 到 `origin main`，CI 构建镜像，服务器 `docker compose -f docker-compose.custom.yml pull && up -d`。
-
-## 部署：镜像按提交固定
-
-服务器的 `.env` 里有一行
-
-```
-EIDOLON_IMAGE_TAG=sha-d2dceaf
-```
-
-`docker-compose.custom.yml` 的两个服务都写成 `:${EIDOLON_IMAGE_TAG:-main}`，所以跑的是**某一次具体提交**
-  
-的镜像，不是会滚动的 `main`。好处是「服务器上跑的到底是哪一版」一眼能查：
-
-```sh
-docker ps --format '{{.Names}} {{.Image}}'
-```
-
-**每次 push 之后要改这一行**：
-
-```sh
-git rev-parse --short=7 HEAD        # 新提交的短哈希，CI 会打 sha-<7位> 的标签
-# 编辑 /opt/eidolon-sc/.env 里的 EIDOLON_IMAGE_TAG
-cd /opt/eidolon-sc && sudo docker compose -f docker-compose.custom.yml pull && sudo docker compose -f docker-compose.custom.yml up -d
-```
-
-要回滚，把这一行改成上一版的 sha 再 pull 一次就行——不用重新构建。
-
-## 这个 fork 不打算做的事
-
-- 不追上游每一次提交。只在自己有需求时，按上面的步骤整块合。
-- 不改动上游的领域模型（回合、搭话、记忆、好感度这些概念），除非已经写进 `GLOSSARY.md`。
-- 剧情库、音色、立绘素材不进仓库（上游 ADR-0003，这里照旧）。
-
-## 叶月（七草はづき）——上游 7eb50984 的定向移植
-
-只搬了这一个提交的内容，其余上游新功能（成就、通话上限、性能、发布流程）都不要：
-
-- `characters.toml` 叶月整条配置；头像、SCSP 头像、通话背景、人设 sheet、facts 与出处
-- 读音表「ななくさ はづき」；`world.py` 启动校验认事务所职员  
-  （`world.json` 的 `office.staff` 本来就有她，不用重跑 world sync）
-- 各处提示词「偶像」放宽为「偶像（或事务员）」；前端落地页分组与字体子集
-
-**合并上游时要注意**：这一块和上游的 `44a3657e`（成就）交织——叶月提交把成就的  
-「往来过几位角色」最高一档 28 → 29，我们没有成就系统，那一处直接跳过。  
-部署后要跑：story sync（她出场的剧情改算她）、stand-sync（衣装 91）、`eidolon greeting upload`。
-
-## 新对话接上一段（记忆与情绪流）
-
-上游的设计是**一段对话只读自己那段记录**（`test_conversations_are_kept_apart` 就是守着这一条），
-跨对话只靠散点记忆接续，于是「新建对话」在体感上等于失忆。
-
-本 fork：新的一段对话**第一轮**把同角色上一段的最后 `RECAP_TURNS`（4）轮接进历史。
-
-- `store.conversation_before()` 找同一个用户、同一个角色、排除当前这段的最近一段
-- `engine._reply` 把它拼在 `history` 前面，聊天模型、好感度判断、情绪判断读到的历史都从那里开始
-- 只接**第一轮**：之后这一段有了自己的消息，就不再重复（不烧上下文）
-- 只接**同一个角色**的：别人的对话不会按到她身上（有测试守着）
-
-### 搭话也接得上上一段
-
-换到新的一段对话、她先开口时（这一段她说过的还不到 `RECAP_TURNS` 轮），搭话的提示词里
-也带着上一段的末尾——不然规则叫她「先接着最近聊过的事」，她手里却没有那件事，只能发一句空问候。
-
-检索（`last_turn_query`）跟着换成上一段的最后一句，找出相关的记忆。聊久了（这一段自己的
-轮数够了）就不再带上一段，只看本段。
-
-## 她搭话的间隔可以调
-
-上游把间隔写死在 `reach_outs.INTERVALS`（intimate 3–6h / close 8–16h / trust 20–36h），
-改的话要动代码、连带改十几处测试。
-
-本 fork 改成 `EIDOLON_REACH_OUT_INTERVALS`，写成 `档:最小-最大`（小时），逗号分开，
-没写到的档位保持上游值：
+上游 `reach_outs.INTERVALS` 写死（intimate 3–6h / close 8–16h / trust 20–36h），改要动代码连带改十几处测试。
+本 fork 改成环境变量，没写到的档位保持上游值：
 
 ```
 EIDOLON_REACH_OUT_INTERVALS=intimate:1-3,close:2-6,trust:3-10
@@ -225,26 +129,150 @@ EIDOLON_REACH_OUT_INTERVALS=intimate:1-3,close:2-6,trust:3-10
 
 随机位置（`place`）本来就有，改的只是范围。夜里 22:00–08:00 仍然不打扰。
 
-## 信（glossary：信）
+## 6. 成就系统（**上游移植**，`44a3657e`）
 
-她自己写的信，放在**公告**里，晚上给。上游没有这个功能。
+上游那个提交的父提交正好是 `4b869539`（本 fork 的基线），所以是整包干净搬过来的。
 
-**谁写、什么时候写**（`backend/src/eidolon/letters.py`）
-- 只有**亲近（close）以上**的角色写；冷却 3–7 天（每封抽一次），一天最多一封
-- 时间在生产者的 **18:00–22:00**（当天抽一分钟，抽签按「对话 + 日期」算哈希，多轮 tick 不会变）
-- 特殊日子优先：**制作人生日**、**第一次说话之后每满 30 天**（纪念日）
-- 会话里提到的「约定」还没有做：需要逐轮判断，等下一版
+- 8 组成就：每角色「聊天回合 / 通话时长 / 礼物 / 亲密度」，全角色「往来角色数 / 亲密角色数 / 相处天数 / 抽卡」
+- 两张表 `achievement_progress`、`achievement_stages`，进度按历史数据回填
+- 前端：礼物页成就墙、聊天里的解锁提示、分享卡
+- **不调 LLM**，纯计数解锁
 
-**写什么**（`engine.letter`）
-- 与搭话同一套提示词骨架：人设、世界设定、最新记忆、最近对话（含上一段的末尾）
-- 结尾换成 `LETTER_RULES`：这是信，有称呼有落款；写平时当面说不出口的话；引一件具体的事；四到六段
-- 产出仍是 `<ja>…</ja><zh>…</zh>`，和消息同一种结构，逐句双语
+> 合并上游时要注意：全角色「往来过几位角色」最高档在叶月那一提交里从 28 改成了 29，两处都在。
 
-**怎么读**
-- `GET /api/letters`（最新在前）、`POST /api/letters/{id}/read`
-- 前端在公告弹窗里多一段「信」，点开是一张信纸：她的**通话背景**透在下面（压暗、去色），
-  正文用衬线体，日文在上中文字幕在下，末尾是她的落款；打开即已读
+## 7. 叶月：七草はづき（**上游移植**，`7eb50984`）
 
-**还没做**
-- 约定检测（「下周给你写信」这类）
-- 信里带照片、随信附礼物
+角色不再只限偶像：事务员七草はづき也是角色。
+
+- `characters.toml` 整条配置（音色、印象色 `#c3d825`、`idol_id 91`、默认衣装【２８３プロの日常】、照片 tag、招呼）
+- 头像、SCSP 头像、通话背景、人设 sheet、facts 与出处、读音「ななくさ はづき」
+- `world.py` 启动校验认事务所职员（`world.json` 的 `office.staff` 本来就有她，不用重跑 world sync）
+- 各处提示词「偶像」放宽为「偶像（或事务员）」；落地页分组（283プロ）与字体子集
+
+**部署后要跑**：story sync（她出场的剧情改算她）、stand-sync（衣装 91）、`eidolon greeting upload`。
+**角色文件是宿主机挂载的**（`/opt/eidolon-sc/characters`），改完要同步宿主机再重启，光换镜像不生效。
+
+---
+
+# 二、与上游的差异、小更新
+
+## 2.1 镜像推到自己的 GHCR（部署基建）
+
+| 文件 | 改动 |
+| --- | --- |
+| `.github/workflows/ci.yml` | `images: ghcr.io/sallyn0225/…` → `ghcr.io/soulrewrite/…` |
+| `docker-compose.prod.yml` | 两个服务的 `image:` 同上 |
+| `.github/dependabot.yml` | 忽略的依赖名同上 |
+
+不改这三处，push 后 CI 会在推送那一步失败。
+
+> 服务器上实际跑的是 `docker-compose.custom.yml`（不在仓库里，含 TURN secret），`image:` 也指向
+> `ghcr.io/soulrewrite/…`。**改镜像地址时两边都要改。**
+
+## 2.2 生图换成 TensorArt（上游默认 NovelAI）
+
+上游的 `ImageFormat` 只有 `novelai`（默认）和 `openai` 两种，靠 `NOVELAI_*` 那组变量配置。
+本 fork 加了第三种 `tensorart`，本部署用的就是它（`NOVELAI_API_FORMAT=tensorart`）：
+
+| 文件 | 改动 |
+| --- | --- |
+| `backend/src/eidolon/config.py` | `ImageFormat` 多一个 `"tensorart"` |
+| `backend/src/eidolon/image_generation.py` | `_tensorart`：`POST {base}/task` 建任务 → 每 3 秒 `POST {base}/task/query` → 从签名的 outputs 取图。认证是 `Echo-Access-Key` 头（不是 Bearer），还要带浏览器 UA，否则 Cloudflare 403 code 1010；INTEGER 输入要传原生数字，传字符串会 500。`TIME_LIMIT` 90 → 160 秒 |
+| `backend/src/eidolon/photo_prompt.py` | `rating:general` → `rating:sensitive`；新增 `CHARM_TAGS`（beautiful detailed eyes / soft lighting / delicate features）；负面词去掉 `cleavage`，nude/underwear/see-through 仍然挡 |
+| `backend/tests/test_image_service.py` | TensorArt 的建任务/轮询/取图用例 |
+| `backend/tests/test_photos.py`、`test_photo_all_ages.py` | 提示词尾部同步 |
+
+**这个接口只吃 4 个参数**（prompt / width / height / count）：`negative_prompt`、`seed`、`steps`、`cfg` 都传不进去。
+要全参数得注册 TensorArt 的 Application 走 TAMS API（`ap-east-1.tensorart.cloud/v1/jobs`），skills key 调它会 `app not found`。
+
+**必须走代理**：`openapi.tensor.art` 在国内被 DNS 污染，所以 `EIDOLON_PROXY_SERVICES=tts,image`。
+
+## 2.3 播放键的按压反馈（视觉）
+
+气泡里的播放键原来只有 hover 变色，按下去什么也没有，手机上更是毫无回应。
+
+| 文件 | 改动 |
+| --- | --- |
+| `ConversationView.tsx`（`SpeechKey`、`headerKey`） | `motion-safe:active:scale-90` + `active:bg-accent`；正在放时整颗实心底 |
+| `(landing)/landing.css` | `.lp-sound:active` 缩放 0.92 |
+
+## 2.4 落地页的声音开关（视觉）
+
+`frontend/src/app/(landing)/Spectrum.tsx`：「声音 开/关」的文字按钮 → 内联音符 SVG（`aria-pressed` 区分开关）；
+`landing.css` 的 `.lp-sound` 改成图标按钮，关掉时变暗并划一道斜线。
+
+**文案没动**，所以落地页字体子集不用重新生成。以后改这里的文案，要跑 `node scripts/landing-fonts.mts`，
+否则 `fonts/coverage.test.ts` 会挂。
+
+## 2.5 数据库备份（上游是 age + S3，这台没有桶）
+
+上游的 `deploy/db-backup.sh` 走 age 加密 + S3 兼容桶（ADR-0012），这台机器没配桶，所以另写了一个简单的，
+每天凌晨 4 点跑（服务器 `/home/ubuntu/eidolon-db-backup.sh`，仓库里是 `deploy/db-backup-simple.sh`）：
+
+```sh
+0 4 * * * /home/ubuntu/eidolon-db-backup.sh     # ubuntu 用户的 crontab
+```
+
+- 用容器里的 `sqlite3` **在线备份 API**（WAL 下直接 cp 会拿到不一致的快照）
+- 备份前跑 `PRAGMA integrity_check`
+- 存 `/home/ubuntu/eidolon-backup/eidolon-YYYYMMDD-HHMM.db.gz`，**保留 14 天**（最新一份不删）
+- 日志同目录 `backup.log`；退出码 0 成功、2 导出/检查失败、5 容器没跑
+- 恢复：容器停掉，`gzip -dc ...db.gz > /data/eidolon.db`
+
+## 2.6 部署：镜像按提交固定
+
+`.env` 里一行 `EIDOLON_IMAGE_TAG=sha-xxxxxxx`，`docker-compose.custom.yml` 写成 `:${EIDOLON_IMAGE_TAG:-main}`，
+所以跑的是**某一次具体提交**，不是会滚动的 `main`。查当前版本：
+
+```sh
+docker ps --format '{{.Names}} {{.Image}}'
+```
+
+每次 push 之后要改这一行：
+
+```sh
+git rev-parse --short=7 HEAD        # 新提交的短哈希，CI 打的标签是 sha-<7位>
+# 编辑 /opt/eidolon-sc/.env 里的 EIDOLON_IMAGE_TAG
+cd /opt/eidolon-sc && sudo docker compose -f docker-compose.custom.yml pull && sudo docker compose -f docker-compose.custom.yml up -d
+```
+
+回滚：把这一行改回上一版的 sha 再 pull，不用重新构建。
+
+## 2.7 怎么把上游的新东西合进来
+
+```sh
+git fetch upstream main
+git log --oneline 4b869539..upstream/main      # 先看有什么
+git diff --binary <提交>^ <提交> > /tmp/x.patch  # 只要一个提交时
+git apply --3way /tmp/x.patch                  # 二进制文件（jpg/woff2）要 --binary 才能进
+```
+
+合并后：
+
+1. 看上面的冲突点：`Store.add_reach_out` 的签名、成就的 28→29 档位
+2. 重跑后端 `uv run ruff check && uv run pyright && uv run pytest`，
+   前端 `npm run typecheck && npm test && sh scripts/check-discipline.sh`
+3. 把本文开头的「已移植的上游提交」补上这一条
+4. push 到 `origin main` → CI 构建 → 服务器改 `EIDOLON_IMAGE_TAG` 再 pull
+
+**合并是最容易出问题的一步**，注意两件事：
+
+- 整块 `git apply` 遇到二进制文件失败会**整体回滚**，要用 `git diff --binary`
+- 新加的表要同时登记进 `database.USER_DATA`（否则删账号会漏数据，`test_database` 会拦）；
+  连库只能走 `eidolon.database.connect`，不许自己 `sqlite3.connect`
+
+## 2.8 这个 fork 不打算做的事
+
+- 不追上游每一次提交。只在自己有需求时按上面步骤整块合。
+- 不改上游的领域模型（回合、搭话、记忆、好感度这些概念），除非已经写进 `GLOSSARY.md`。
+- 剧情库、音色、立绘素材不进仓库（上游 ADR-0003，这里照旧）。
+
+---
+
+# 三、已知问题 / 待办
+
+- **信**：约定检测没做；信里还不能带照片
+- **语音合成与生图都依赖机场**：机场挂了就都用不了（`EIDOLON_PROXY_SERVICES=tts,image`）。
+  机场全挂时 `update-sub.sh` 会用家宽出口兜底拉订阅，但**实际流量没有兜底**
+- **上游还差**：通话上限（`9e4f3e63`）、性能那几笔（索引、线程化、连接池）、发布流程。
+  性能实测在这台机器上收益接近 0（索引目标查询 0.01ms），暂不跟
