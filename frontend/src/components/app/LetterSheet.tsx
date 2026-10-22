@@ -55,12 +55,12 @@ function Sheet({
 }) {
   return (
     <div
-      className="relative overflow-hidden sm:min-w-0 sm:flex-1 sm:rounded-[3px]"
+      className="relative overflow-hidden rounded-[12px] sm:min-w-0 sm:flex-1 sm:rounded-[3px]"
       style={{
         padding: compact ? "22px 16px 18px 34px" : "30px 34px 22px 54px",
         // 纸压在桌上：内圈一道极淡的暗线是纸的厚度，外面那层投影是纸离桌面的那点距离。
         boxShadow: compact
-          ? "0 1px 0 rgba(255, 255, 255, .5) inset, 0 12px 26px -16px rgba(0, 0, 0, .55)"
+          ? "0 1px 0 rgba(255, 255, 255, .55) inset, 0 0 0 1px rgba(122, 98, 64, .12) inset, 0 16px 30px -18px rgba(0, 0, 0, .6)"
           : "0 1px 0 rgba(255, 255, 255, .55) inset, 0 0 0 1px rgba(122, 98, 64, .13) inset, 0 34px 64px -30px rgba(0, 0, 0, .7)",
         color: ink(letter.color, look.ink),
         fontFamily: look.font,
@@ -179,7 +179,8 @@ export function LetterSheet({
       >
         {letter && look && greeting && (
           // 两张纸等高：中文那页通常短一截，多出来的横线就当还没写到的信纸，桌面不会空一块。
-          <div className="relative flex flex-col gap-2 p-0 sm:flex-row sm:items-stretch sm:gap-6 sm:p-6">
+          // 手机也留一圈边：她的背景在纸外露出一点，纸是圆角的。
+          <div className="relative flex flex-col gap-3 p-4 sm:flex-row sm:items-stretch sm:gap-6 sm:p-6">
             <Sheet letter={letter} look={look} row={row} compact={compact}>
               <div
                 className="flex items-baseline justify-end gap-2 tabular-nums"
@@ -278,7 +279,7 @@ export function LetterSheet({
           </div>
         )}
 
-        <DialogFooter className="sticky bottom-0 flex-row justify-end gap-2 bg-background p-2 sm:bg-transparent sm:p-3">
+        <DialogFooter className="sticky bottom-0 flex-row justify-end gap-2 bg-transparent p-2 sm:p-3">
           <Button
             variant="ghost"
             onClick={onClose}
