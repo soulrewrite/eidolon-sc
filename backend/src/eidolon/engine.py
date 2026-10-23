@@ -130,6 +130,7 @@ from eidolon.llm import ChatLLM, ChatMessage, Reasoning, Tool, ToolCall, TurnLLM
 from eidolon.memory import Memories, last_turn_query
 from eidolon.own_keys import OwnKeyFailed
 from eidolon.photos import CANNOT_SEND, NOT_RECEIVED, Eligibility, Photos, photo_turn
+from eidolon.delivery_cues import TAG_READERS
 from eidolon.producer import effective_timezone, local_date, now_prompt, producer_prompt
 from eidolon.reply_format import (
     format_instructions,
@@ -223,10 +224,12 @@ class TurnDone:
 class InCall:
     """The turn is taken in a call, in which the user has been out of line (GLOSSARY.md
     「不该说的话」) `out_of_line` times so far, in turns recorded, which took `hurts` each off
-    her affinity (`affinity.hurt`), the latest last."""
+    her affinity (`affinity.hurt`), the latest last; an ASMR call (`asmr`) has her speak
+    softly into the ear (`asmr_rules`)."""
 
     out_of_line: int = 0
     hurts: tuple[float, ...] = ()
+    asmr: bool = False
 
 
 @dataclass(frozen=True)
@@ -471,6 +474,26 @@ REACH_OUT_RULES = """# 先开口
 """How she is to reach out (GLOSSARY.md「搭话」), told her last in what changes from turn to turn,
 where what retrieval finds would be."""
 
+def asmr_rules(voiced_by: FishAudioModel | None) -> str:
+    """How she speaks in an ASMR call (ASMR 模式通话): softly, whatever they talk about; told
+    her in what changes from turn to turn, how she whispers as the model her replies are
+    voiced with reads it."""
+    whisper = (
+        "- 每段开头写一句贴近的指示，例如 [whispering right into the ear, very close] [soft breathy murmur, lips near the ear]；"
+        "悄悄话用 <whisper>…</whisper> 包住，语速慢的地方可以用 <slow>…</slow>，换气、轻笑写成 [soft breath] [quiet giggle]。"
+        if voiced_by in TAG_READERS
+        else "- 语气提示多用 [whispering]、[softly]、[gently]。"
+    )
+    return f"""# ASMR 模式通话
+制作人想听你在耳边轻轻地说话。
+- 声音放得很轻、很慢，像凑在耳边小声说话；句子短一些，一次只说一两句。
+{whisper}
+- 聊什么都可以，和平时打电话一样，接着制作人的话说；只是说话的方式变得轻柔。
+- 制作人说想睡了，就轻轻跟他说晚安。
+- 你还是你自己：照你的性格和说话方式来。
+- 轻声说话也照回复格式来：<ja> 里只有日语，不要在日语后面接着用中文再说一遍，中文只写在 <zh> 字幕里。"""
+
+
 LETTER_RULES = """# 写一封信
 制作人不在你面前。你要给他写一封信，等他晚上看到。
 - 这是信，不是聊天：第一行只写称呼（比如「プロデューサーへ」），另起一段再写正文。
@@ -713,6 +736,7 @@ class ConversationEngine:
                     affinity_lines, last_contact,
                 ),
                 *([about_photo] if about_photo else []),
+                *([asmr_rules(voiced_by)] if in_call is not None and in_call.asmr else []),
             ],
             [p for p in (retrieved.memories_prompt, retrieved.prompt) if p],
             text, voiced_by,

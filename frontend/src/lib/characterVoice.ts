@@ -7,6 +7,8 @@
 // Only her voice goes this way; the call tones play on their own.
 
 /** The phone band: roughly what a phone line carries, in Hz. */
+import { Ambience, type AmbienceKind } from "@/lib/ambience";
+
 const PHONE_BAND = { low: 300, high: 3400 } as const;
 
 /** Builds the phone line after `input`: band limited, lightly compressed. Returns the last node. */
@@ -44,7 +46,18 @@ export class CharacterVoice {
   /** The phone line her current track plays through, with texture on. */
   private line: { source: AudioNode; volume: GainNode } | null = null;
 
-  constructor(private readonly createContext: () => AudioContext = () => new AudioContext()) {}
+  /** The ambience played under her voice (ASMR 模式), on the same audio context. */
+  readonly ambience: Ambience;
+
+  constructor(private readonly createContext: () => AudioContext = () => new AudioContext()) {
+    this.ambience = new Ambience(() => this.audioContext());
+  }
+
+  private audioContext(): AudioContext {
+    this.context ??= this.createContext();
+    if (this.context.state === "suspended") void this.context.resume().catch(() => {});
+    return this.context;
+  }
 
   /** The page's <audio> element (null once it is gone); usable as its ref. */
   readonly attach = (element: HTMLAudioElement | null) => {
@@ -54,14 +67,33 @@ export class CharacterVoice {
 
   /** Called while the user dials, inside their click: the audio context may only start from a
    * user gesture, else autoplay rules keep it suspended. */
-  dial(phoneTexture: boolean) {
+  dial(phoneTexture: boolean, asmr = false) {
     this.textured = phoneTexture;
     this.disconnectLine();
-    if (phoneTexture) {
-      this.context ??= this.createContext();
-      if (this.context.state === "suspended") void this.context.resume().catch(() => {});
-    }
+    // 普通通话不碰 Web Audio（测试守着这一点）；电话质感和 ASMR 才建上下文。
+    if (phoneTexture || asmr) this.audioContext();
+    this.ambience.callStarted(asmr);
     this.applyMuting();
+  }
+
+  /** 她开口了，或者停了：她说话时环境音压低，停下再回来。 */
+  speaking(speaking: boolean) {
+    this.ambience.duck(speaking);
+  }
+
+  /** 通话接通了：环境音开始要后端挑。 */
+  callConnected(setAmbienceAuto: (on: boolean) => void) {
+    this.ambience.connected(setAmbienceAuto);
+  }
+
+  /** 后端挑好了环境音。 */
+  ambiencePicked(kind: AmbienceKind) {
+    this.ambience.picked(kind);
+  }
+
+  /** 通话结束：环境音淡出。 */
+  callEnded() {
+    this.ambience.callEnded();
   }
 
   /** Her voice has arrived for this call. */

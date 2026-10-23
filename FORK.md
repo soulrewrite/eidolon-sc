@@ -185,6 +185,20 @@ EIDOLON_REACH_OUT_INTERVALS=intimate:1-3,close:2-6,trust:3-10
 
 > 合并上游时要注意：全角色「往来过几位角色」最高档在叶月那一提交里从 28 改成了 29，两处都在。
 
+## 8. ASMR 模式通话（**移植自 [Eidolon-Hibi](https://github.com/x499806631-commits/Eidolon-Hibi)**，同 AGPL）
+
+更多菜单里的「ASMR 模式」拨出：她贴在耳边轻声慢慢说话，聊什么都可以。
+
+- **开关**：`CallRequest.asmr` 随 offer 带上；每个回合的提示词里加 `asmr_rules(voiced_by)`——
+  Fish Audio 的音色（如 `drama-3`）写 `[whispering right into the ear]`、`<whisper>悄悄话</whisper>` 这类
+  标记，合成时真的是气声；别的音色退回 `[whispering]` 这类普通提示
+- **环境音（「自动」）**：判断模型按「制作人那边的时间、季节、聊的话题、是否 ASMR」从
+  雨 / 雷雨 / 暖炉 / 海浪 / 夏夜虫鸣 / 书房 / 咖啡店 / 安静 里挑，`SWITCH_MARGIN` 防止来回跳；
+  每隔 `PICK_EVERY`（4）个回合再挑一次，浏览器发 `ambience-auto` 帧开关
+- **音源**：`frontend/public/ambience/`，全部来自 Freesound 的 **CC0**（见 `CREDITS.md`）
+- 通话底部的「环境音」圆键：手动选场景或「自动」，三档音量；她说话时底噪自动压低（duck）
+- 普通通话**不碰** Web Audio（`characterVoice.test` 守着这一点）；ASMR 或电话质感才建音频上下文
+
 ## 7. 叶月：七草はづき（**上游移植**，`7eb50984`）
 
 角色不再只限偶像：事务员七草はづき也是角色。

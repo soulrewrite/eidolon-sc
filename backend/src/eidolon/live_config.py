@@ -53,6 +53,7 @@ from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from eidolon.activity import (
     ActivityLog,
     MeteredAffinityJudge,
+    MeteredAmbienceJudge,
     MeteredEmotionJudge,
     MeteredJudge,
     judge_origin,
@@ -96,6 +97,7 @@ from eidolon.config import (
     with_proxy_password,
 )
 from eidolon.database import connect
+from eidolon.ambience import AMBIENCE_TIMEOUT, AmbiencePicking, ModelAmbienceJudge
 from eidolon.affinity import Judged
 from eidolon.affinity_judge import ModelAffinityJudge
 from eidolon.emotion import EmotionJudging, ModelEmotionJudge
@@ -1137,6 +1139,7 @@ class LiveConfig:
         memory = self._memory.lease()
         held: list[Lease[Any, Any]] = [chat, memory]
         emotions = None
+        ambience = None
         if self._judge is not None:
             judge = self._judge.lease()
             held.append(judge)
@@ -1146,6 +1149,12 @@ class LiveConfig:
                 ),
                 self.judge_thresholds_of(judge.settings).emotion,
                 self.effective(JUDGE)["emotion_timeout"],
+            )
+            ambience = AmbiencePicking(
+                MeteredAmbienceJudge(
+                    ModelAmbienceJudge(judge.client), self._activity, judge_origin(judge.settings)
+                ),
+                AMBIENCE_TIMEOUT,
             )
         tts = self.effective(TTS)
         keys = DeployerKeys(
@@ -1160,6 +1169,7 @@ class LiveConfig:
             call_llm=metered_llm(
                 chat.client.call, self._activity, llm_origin("chat_llm", chat.settings.call)
             ),
+            ambience=ambience,
         )
         return DeployerLease(keys, lambda: _release(held))
 

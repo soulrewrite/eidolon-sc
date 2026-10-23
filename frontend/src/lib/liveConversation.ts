@@ -4,6 +4,7 @@
 // each turn leaves it, the stages of her achievements each turn unlocks, and the photos she sent
 // as they come out, kept outside React so the page only renders a snapshot and passes on clicks.
 
+import type { Ambience, AmbienceKind } from "@/lib/ambience";
 import type { AffinityChange, AffinityStatus } from "@/lib/affinity";
 import {
   ApiError,
@@ -242,11 +243,20 @@ export const NOT_OPEN: Snapshot = {
 
 /** Her voice in a call (`CharacterVoice`): plain or over a phone line, silent in text only. */
 export type Voice = {
-  /** A call is being dialed, inside the user's click: over the phone line or not. */
-  dial: (phoneTexture: boolean) => void;
+  /** A call is being dialed, inside the user's click: over the phone line or not, an ASMR
+   * call (ASMR 模式通话) has her speak into the ear and its ambience readied. */
+  dial: (phoneTexture: boolean, asmr?: boolean) => void;
   /** Her voice has arrived in the call under way. */
   play: (track: MediaStreamTrack) => void;
   setTextOnly: (textOnly: boolean) => void;
+  /** 她开口了，或者停了：她说话时环境音压低。 */
+  speaking?: (speaking: boolean) => void;
+  /** 通话接通了：`setAmbienceAuto` 让后端开始挑环境音。 */
+  callConnected?: (setAmbienceAuto: (on: boolean) => void) => void;
+  /** 后端挑好了环境音。 */
+  ambiencePicked?: (kind: AmbienceKind) => void;
+  /** 她的环境音（AmbienceKey 直接读写它）。 */
+  readonly ambience: Ambience;
   /** The page is left. */
   dispose: () => void;
 };
@@ -287,6 +297,7 @@ export type Ports = {
     conversationId: string,
     preferences: CallPreferences,
     handlers: CallHandlers,
+    asmr?: boolean,
   ) => Promise<Call>;
   sendTurn: (conversationId: string, text: string) => AsyncIterable<TurnEvent>;
   /** How a photo she sent is coming along. */
@@ -298,6 +309,8 @@ export type Ports = {
     save: (change: Partial<CallPreferences>) => CallPreferences;
   };
   voice: Voice;
+  /** 她的环境音（通话底噪），环境音键直接读写它。 */
+  ambience: Ambience;
   tones: Tones;
   /** The time now, in milliseconds; `Date.now` unless a test stops the clock. */
   now?: () => number;
@@ -483,12 +496,12 @@ export class LiveConversation {
    * ringback, or the list. That rule is kept here alone, in the gate every handler given to
    * the call goes through; the handlers behind it do not ask again.
    */
-  async startCall(): Promise<void> {
+  async startCall(asmr = false): Promise<void> {
     const conversationId = this.openConversationId();
     if (!conversationId || !isFree(this.state) || isCooling(this.state) || isEnded(this.state)) return;
     // Read once: the phone texture her voice is told is the one the call is given.
     const preferences = this.ports.preferences.load();
-    this.ports.voice.dial(preferences.phoneTexture);
+    this.ports.voice.dial(preferences.phoneTexture, asmr);
     const attempt = {};
     this.attempt = attempt;
     this.endedBy = null;
@@ -562,6 +575,7 @@ export class LiveConversation {
     }
     this.call = started;
     this.ports.tones.connect();
+    this.ports.voice.callConnected?.((on) => started.setAmbienceAuto?.(on));
     this.update({
       call: {
         phase: "connected",
@@ -686,7 +700,11 @@ export class LiveConversation {
         return this.moveCard(event, { stand });
       case "bot-started-speaking":
       case "bot-stopped-speaking":
+        this.ports.voice.speaking?.(event.type === "bot-started-speaking");
         return this.moveCard({ type: "voice", playing: event.type === "bot-started-speaking" }, { stand });
+      case "ambience":
+        this.ports.voice.ambiencePicked?.(event.kind);
+        return this.moveCard({ type: "voice", playing: false }, { stand });
       case "user-started-speaking":
         return this.moveCard({ type: "interrupted" }, { stand });
       default:

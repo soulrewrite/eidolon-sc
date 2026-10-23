@@ -1,3 +1,4 @@
+import { Ambience } from "@/lib/ambience";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AffinityStatus } from "@/lib/affinity";
 import {
@@ -39,6 +40,9 @@ class FakeCall implements Call {
   };
   sendText = (text: string) => void this.sent.push(text);
   setTextOnly = (textOnly: boolean) => void this.textOnly.push(textOnly);
+  ambienceAuto: boolean[] = [];
+  setAmbienceAuto = (on: boolean) => void this.ambienceAuto.push(on);
+  readonly ambience = new Ambience();
   setMicEnabled = (enabled: boolean) => void this.micEnabled.push(enabled);
   hangUp = async () => void this.hangUps++;
   leaves = 0;
@@ -55,6 +59,7 @@ class FakeVoice {
   dial = (phoneTexture: boolean) => void this.dials.push(phoneTexture);
   play = (track: MediaStreamTrack) => void this.played.push(track);
   setTextOnly = (textOnly: boolean) => void this.textOnly.push(textOnly);
+  readonly ambience = new Ambience();
   dispose = () => void this.disposed++;
 }
 
@@ -154,6 +159,7 @@ function opening(options: Options = {}) {
       save: (change) => (stored = { ...stored, ...change }),
     },
     voice,
+    ambience: voice.ambience,
     tones,
     now: () => NOW,
     ...options.ports,

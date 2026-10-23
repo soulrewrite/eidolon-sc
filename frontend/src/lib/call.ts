@@ -5,6 +5,7 @@
 // events as a text turn, over the data channel, along with who starts and stops
 // speaking.
 
+import type { AmbienceKind } from "@/lib/ambience";
 import { PipecatClient, TransportStartError } from "@pipecat-ai/client-js";
 import { SmallWebRTCTransport } from "@pipecat-ai/small-webrtc-transport";
 import {
@@ -24,6 +25,7 @@ export type { MicInUse };
 /** Pipecat's standard RTVI events, not server messages: her voice starts or stops playing
  * (stopping at once when she is interrupted), the user starts or stops speaking. */
 export type Speaking = { type: (typeof SPEAKING)[number] };
+export type AmbienceEvent = { type: "ambience"; kind: AmbienceKind };
 
 export const SPEAKING = [
   "bot-started-speaking",
@@ -59,6 +61,8 @@ export type Call = {
   sendText: (text: string) => void;
   /** Whether the character's replies are voiced (GLOSSARY.md「只看文字」). */
   setTextOnly: (textOnly: boolean) => void;
+  /** Ask the backend to pick the ambience (环境音「自动」), or to stop picking it. */
+  setAmbienceAuto: (on: boolean) => void;
   /** Turn the microphone's track on or off in the browser (GLOSSARY.md「麦克风静音」). */
   setMicEnabled: (enabled: boolean) => void;
   /** The microphone the call connected with. */
@@ -87,6 +91,7 @@ export async function startCall(
   preferences: CallPreferences,
   handlers: CallHandlers,
   userId: string,
+  asmr = false,
 ): Promise<Call> {
   const { ownKeys, services } = callOwnKeys(userId);
   const { iceServers, maxCallSeconds, callExempt } = await getCallSetup(conversationId, services);
@@ -122,6 +127,8 @@ export async function startCall(
       muted: preferences.muted,
       quality: preferences.quality,
     };
+    if (asmr) requestData.asmr = true;
+
     if (ownKeys) requestData.own_keys = ownKeys;
     await client.connect({
       webrtcRequestParams: { endpoint: "/api/offer", headers: apiHeaders(), requestData },
@@ -144,6 +151,8 @@ export async function startCall(
     exempt: callExempt,
     sendText: (text) => connected.sendClientMessage("user-text", { text }),
     setTextOnly: (textOnly) => connected.sendClientMessage("mute", { muted: textOnly }),
+
+    setAmbienceAuto: (on) => connected.sendClientMessage("ambience-auto", { on }),
     setMicEnabled: (enabled) => microphone.enableMic(enabled),
     mic: microphone.inUse,
     switchMic: (micId) => microphone.updateMic(micId),
