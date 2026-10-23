@@ -103,7 +103,6 @@ class CallRequest(BaseModel):
     conversation_id: str
     muted: bool = False
     quality: Quality = "standard"
-    asmr: bool = False
     own_keys: OwnKeysInput | None = None
     """The user's own keys, which their browser keeps, for the call to run on."""
 
@@ -405,7 +404,7 @@ def create_app(backend: Backend) -> FastAPI:
             user_id,
             conversation,
             characters[conversation.character_id],
-            CallOptions(body.call.muted, body.call.quality, device_timezone, body.call.asmr),
+            CallOptions(body.call.muted, body.call.quality, device_timezone),
             description,
             body.call.own_keys.brought() if body.call.own_keys else BroughtKeys(),
         )

@@ -177,8 +177,6 @@ export const zh = {
     newConversation: "新对话",
     call: (name: string) => `和${name}通话`,
     callTooltip: "语音通话",
-    /** 更多菜单里的 ASMR 模式通话：她在耳边轻声慢慢地说话，聊什么都可以。 */
-    asmrCall: "ASMR 模式",
     placeholder: "用中文或日语说点什么",
     send: "发送",
     /** 消息区里跨天处的日期条；昨天、更早的写法和列表一样（conversationList）。 */
@@ -346,19 +344,6 @@ export const zh = {
     micUnmute: "取消麦克风静音",
     hangUp: "挂断",
     switchMic: "切换麦克风",
-    /** 通话画面底部的环境音按钮和它弹出的面板。 */
-    ambience: {
-      label: "环境音",
-      title: "环境音",
-      off: "关闭",
-      auto: "自动",
-      autoWaiting: "正在按时间、季节和聊的内容挑……",
-      autoQuiet: "自动挑了「安静」：现在先不放，聊着聊着可能会换。",
-      autoPlaying: (scene: string) => `自动挑了「${scene}」，聊着聊着可能会换。`,
-      volume: "音量",
-      volumes: { quiet: "小", medium: "中", loud: "大" },
-      hint: "选一个场景马上放；选「自动」就按时间和聊的内容来挑。",
-    },
     micSheet: {
       title: "切换麦克风",
       systemDefault: "系统默认",

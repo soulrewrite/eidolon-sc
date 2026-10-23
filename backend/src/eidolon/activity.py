@@ -68,7 +68,7 @@ import re
 import secrets
 import sqlite3
 import threading
-from collections.abc import Mapping, AsyncIterator, Awaitable, Iterator, Sequence
+from collections.abc import AsyncIterator, Awaitable, Iterator, Sequence
 from contextlib import contextmanager
 from contextvars import Context, ContextVar, copy_context
 from dataclasses import dataclass
@@ -80,7 +80,6 @@ from urllib.parse import urlsplit
 
 import httpx
 
-from eidolon.ambience import AmbienceJudge, AmbienceKind, AmbienceMoment
 from eidolon.affinity import EndsFor, Judged
 from eidolon.billing import Billing, billing
 from eidolon.characters import Character
@@ -1663,16 +1662,3 @@ class MeteredReranker:
         return await timed(
             self._log, self._origin, self._reranker.rerank(query, documents, top_n)
         )
-
-
-class MeteredAmbienceJudge:
-    """The judge model as calls ask it which ambience fits, each question recorded as a
-    service call under the call it is asked in."""
-
-    def __init__(self, judge: "AmbienceJudge", log: ActivityLog, origin: Origin) -> None:
-        self._judge = judge
-        self._log = log
-        self._origin = origin
-
-    async def judge_ambience(self, moment: "AmbienceMoment") -> "Mapping[AmbienceKind, float]":
-        return await timed(self._log, self._origin, self._judge.judge_ambience(moment))

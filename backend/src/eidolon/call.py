@@ -29,8 +29,7 @@ import logging
 from collections.abc import AsyncGenerator, Awaitable, Callable, Sequence
 from contextlib import nullcontext
 from contextvars import ContextVar
-from dataclasses import dataclass, replace
-from zoneinfo import ZoneInfo
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Literal, Protocol
 
@@ -101,7 +100,6 @@ from eidolon.activity import (
     host,
 )
 from eidolon.admission import Admission, Admissions
-from eidolon.ambience import PICK_EVERY, AmbienceKind, AmbienceMoment, AmbiencePicking
 from eidolon.affinity import EndsFor
 from eidolon.bailian import FOLLOW_ON_TIMEOUT as BAILIAN_FOLLOW_ON_TIMEOUT
 from eidolon.bailian import REGION_URLS, BailianCheckFailed, BailianSTTService, find_region
@@ -145,7 +143,6 @@ from eidolon.own_keys import (
 from eidolon.greetings import FISH_TTS_HTTP_URL
 from eidolon.happenings import Happenings
 from eidolon.proxy import ProxiedWebsocket, ProxyRoutes, masked, open_client
-from eidolon.producer import effective_timezone
 from eidolon.readings import Reading, pronunciation_dictionary
 from eidolon.reply_format import SegmentComplete, SegmentDelta, SpeechDelta
 from eidolon.store import Conversation, NotFound, Store
@@ -193,7 +190,6 @@ class Call:
     own_llm: bool = False
     voiced_by: FishAudioModel = DEFAULT_FISH_AUDIO_MODEL
     own_image: ImageSettings | None = None
-    asmr: bool = False
 
 
 _taking_turn: ContextVar["CallTurns | None"] = ContextVar("_taking_turn", default=None)
@@ -241,7 +237,6 @@ class CallOptions:
     muted: bool = False
     quality: Quality = "standard"
     device_timezone: str | None = None
-    asmr: bool = False
 
 
 @dataclass(frozen=True)
@@ -1063,7 +1058,6 @@ class Calls:
             call = Call(
                 conversation, character, admission.llms, options.muted, options.quality,
                 options.device_timezone, admission.own_llm, keys.tts_model, own_image,
-                options.asmr,
             )
             answer = await self._answer(SmallWebRTCRequest(offer.sdp, offer.type), serve)
         except BaseException:
@@ -1207,8 +1201,7 @@ class _LiveCall:
         stt = hearing.stt
         self._stt_provider: SttProvider = keys.stt.provider
         self._turns = CallTurns(
-            engine, store, call, outcome, hearing.follow_on_timeout, emotions,
-            ambience=keys.ambience,
+            engine, store, call, outcome, hearing.follow_on_timeout, emotions
         )
         tts = speech.tts(
             keys.tts, keys.tts_model, call.character.voice_id, sample_rate, own="tts" in keys.own
@@ -1414,7 +1407,6 @@ class CallTurns(FrameProcessor):
         outcome: CallOutcome,
         follow_on_timeout: float,
         emotions: EmotionJudging | None = None,
-        ambience: AmbiencePicking | None = None,
     ) -> None:
         super().__init__()
         self._engine = engine
@@ -1423,11 +1415,6 @@ class CallTurns(FrameProcessor):
         self._outcome = outcome
         self._follow_on_timeout = follow_on_timeout
         self._emotions = emotions
-        self._ambience = ambience
-        self._ambience_auto = False  # 浏览器请求挑选环境音
-        self._ambience_kind: AmbienceKind | None = None  # 上次告诉它播放的是哪种
-        self._picking: asyncio.Task | None = None
-        self._turns_since_pick = 0
         self._judging: set[asyncio.Task] = set()  # segments' emotions being judged
         self._photos: set[asyncio.Task] = set()  # photos sent, waited on to tell how they came out
         self._turns = TurnTaking(text_only=call.muted)
@@ -1520,11 +1507,6 @@ class CallTurns(FrameProcessor):
             await self._carry_out(self._turns.user_typed(data["text"]))
         elif frame.type == "mute" and isinstance(data.get("muted"), bool):
             await self._carry_out(self._turns.text_only_switched(data["muted"]))
-        elif frame.type == "ambience-auto" and isinstance(data.get("on"), bool):
-            self._ambience_auto = data["on"]
-            if self._ambience_auto:
-                self._ambience_kind = None  # 挑出来之前什么都不放
-                self._pick_ambience()
         elif frame.type == "hang-up":  # the browser closes the connection next
             self._outcome.ended_by("hung_up")
 
@@ -1706,8 +1688,7 @@ class CallTurns(FrameProcessor):
         recorded = CallTurnRecorded()
         async for event in self._engine.turn(
             self._call.conversation, text, self._call.llms, self._call.device_timezone, stop,
-            replace(self._outcome.in_call, asmr=self._call.asmr),
-            self._call.voiced_by, self._call.own_image,
+            self._outcome.in_call, self._call.voiced_by, self._call.own_image,
         ):
             if isinstance(event, CallTurnRecorded):
                 recorded = event
@@ -1728,9 +1709,6 @@ class CallTurns(FrameProcessor):
             if isinstance(event, TurnDone):  # told before any await: no longer to be dropped
                 await self._carry_out(self._turns.reply_recorded())
                 self._outcome.turn_recorded(recorded)
-                self._turns_since_pick += 1
-                if self._turns_since_pick >= PICK_EVERY:
-                    self._pick_ambience()
             if turn is not None:
                 turn.see(event)
             message = shown(event)
@@ -1772,31 +1750,6 @@ class CallTurns(FrameProcessor):
         message = await emotions.message(reply, segment, question)
         if message is not None:
             await self._send(message)
-
-    def _pick_ambience(self) -> None:
-        """浏览器要环境音时，从现在的对话挑一种；正在挑的这次不算。"""
-        if self._ambience is None or not self._ambience_auto or not self._started:
-            return
-        if self._picking is not None and not self._picking.done():
-            return
-        self._turns_since_pick = 0
-        self._picking = self.create_task(self._send_ambience(self._ambience))
-
-    async def _send_ambience(self, ambience: AmbiencePicking) -> None:
-        conversation = self._call.conversation
-        profile = self._store.get_profile(conversation.user_id)
-        timezone = effective_timezone(profile, self._call.device_timezone)
-        moment = AmbienceMoment(
-            self._call.character,
-            ambience.clock().astimezone(ZoneInfo(timezone)),
-            self._call.asmr,
-            self._store.list_messages(conversation.id),
-        )
-        kind = await ambience.pick(moment, self._ambience_kind)
-        if kind is None or not self._ambience_auto:
-            return
-        self._ambience_kind = kind
-        await self._send({"type": "ambience", "kind": kind})
 
     def _tell_photo(self, reply: int, photo_id: str) -> None:
         """Tell the browser how the photo reply `reply` sent came out, once it has, if the

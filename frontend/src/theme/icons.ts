@@ -11,7 +11,6 @@ export {
 } from "lucide-react";
 
 // 她结束了对话（GLOSSARY.md「已结束的对话」）：对话事件的分隔线和换掉输入栏的结束卡。
-export { AudioLines as AmbienceIcon, Moon as AsmrIcon } from "lucide-react";
 export { MessageCircleOff as EndedIcon } from "lucide-react";
 
 // 记忆页、设置页用的图标（ticket 06）。

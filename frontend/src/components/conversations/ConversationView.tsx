@@ -51,7 +51,6 @@ import { cn } from "@/lib/utils";
 import { herVars } from "@/theme/herVars";
 import {
   AchievementsIcon,
-  AsmrIcon,
   BackIcon,
   CooldownIcon,
   EndedIcon,
@@ -198,8 +197,6 @@ export function ConversationView({
   };  const inCall = isLive(call);
   // 要在这次点击里同步调用：她的声音趁这一下唤醒 AudioContext。
   const dial = () => void live?.startCall();
-  // ASMR 模式直接拨：她在耳边轻声说话，环境音自动配。
-  const dialAsmr = () => void live?.startCall(true);
 
   // 通话层展开时盖住整栏：底下的页首和对话不能再被 Tab 或屏幕阅读器摸到。快照里的 layer
   // 已经管着「画哪一通、收没收起」；通话条只在通话中、通话层收着时出现。
@@ -328,12 +325,6 @@ export function ConversationView({
               <AchievementsIcon aria-hidden />
               {copy.achievements.open}
               {achievements.isUnseen && <UnseenDot className="ml-auto" />}
-            </DropdownMenuItem>
-          )}
-          {live && (
-            <DropdownMenuItem disabled={!snapshot.canDial} onClick={dialAsmr}>
-              <AsmrIcon aria-hidden />
-              {t.asmrCall}
             </DropdownMenuItem>
           )}
         </DropdownMenuContent>

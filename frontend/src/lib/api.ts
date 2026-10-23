@@ -1,4 +1,3 @@
-import type { AmbienceKind } from "@/lib/ambience";
 import type { AffinityChange, AffinityStatus } from "@/lib/affinity";
 import type { Provider } from "@/lib/signIn";
 import {
@@ -246,7 +245,6 @@ export type CallEvent =
   | SegmentPlaying
   | SegmentEmotion
   | Speaking
-  | { type: "ambience"; kind: AmbienceKind }
   | {
       type: "ended";
       reason: BackendEndReason;

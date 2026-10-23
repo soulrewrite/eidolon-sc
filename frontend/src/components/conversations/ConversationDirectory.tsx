@@ -42,7 +42,6 @@ import {
   type Character,
   type LatestConversation,
 } from "@/lib/api";
-import type { Ambience } from "@/lib/ambience";
 import { startCall } from "@/lib/call";
 import { loadCallPreferences, saveCallPreferences } from "@/lib/callPreferences";
 import { CharacterVoice } from "@/lib/characterVoice";
@@ -72,8 +71,6 @@ export type Directory = {
   accountChanged: (change: Account | ((account: Account) => Account)) => void;
   /** 还在载入时为 null。头像已经按外观换好（打开 SCSP 头像时是她的 SCSP 头像）。 */
   characters: Character[] | null;
-  /** 她的环境音（ASMR 模式通话的通话底噪，环境音键直接读写它）。 */
-  ambience: Ambience;
   /** 和每位最新一次对话的摘要；标签页在前台时每分钟重新拉一次。她的对话一读到，她那一行就先在本地记成搭话都看过了。 */
   latest: Record<string, LatestConversation>;
   failure: Failure | null;
@@ -374,14 +371,12 @@ export function DirectoryProvider({ children }: { children: ReactNode }) {
           }),
         onListChanged: refresh,
         onRewarded: rewarded,
-        startCall: (conversationId, preferences, handlers, asmr) =>
-          startCall(conversationId, preferences, handlers, userId, asmr),
+        startCall: (conversationId, preferences, handlers) => startCall(conversationId, preferences, handlers, userId),
         sendTurn: (conversationId, text) => sendTurn(conversationId, text, userId),
         getPhoto,
         getAffinity,
         preferences: { load: loadCallPreferences, save: saveCallPreferences },
         voice,
-        ambience: voice.ambience,
         tones,
       });
       heldRef.current = live;
@@ -461,7 +456,6 @@ export function DirectoryProvider({ children }: { children: ReactNode }) {
         account,
         accountChanged,
         characters,
-        ambience: voice.ambience,
         latest,
         preferences,
         tidy,
