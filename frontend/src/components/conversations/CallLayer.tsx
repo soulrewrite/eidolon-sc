@@ -15,6 +15,7 @@ import { MarkedAvatar } from "@/components/app/MarkedAvatar";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { useLeaveGuard } from "@/hooks/useLeaveGuard";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { copy } from "@/i18n";
 import { cueText } from "@/lib/affinity";
@@ -129,6 +130,8 @@ export function LiveCallLayer({
   const snapshot = useSyncExternalStore(live.subscribe, live.snapshot, notOpen);
   const isReducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)", false);
   const { layer } = snapshot;
+  // 通话中离开（刷新 / 关页面 / 点外链）先问一句；已结束就不用拦了
+  useLeaveGuard(layer !== null && snapshot.call.phase !== "ended");
   if (!layer) return null;
   // 先看完结束卡再去：不然通话层在要去的页面上（由外壳画）还展开着结束卡，挡住要去的地方。
   const leave = (href: string) => {

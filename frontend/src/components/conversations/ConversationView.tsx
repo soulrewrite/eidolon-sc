@@ -31,6 +31,7 @@ import {
   MessageScrollerItem,
   MessageScrollerProvider,
   MessageScrollerViewport,
+  useMessageScroller,
 } from "@/components/ui/message-scroller";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
@@ -652,6 +653,20 @@ function HeaderTip({ label, children }: { label: string; children: ReactElement 
  * 这一小时的照片用完时，她推掉的那条回复后面是一行同样的胶囊，几点以后可以再要按制作人的时区（`timeZone`）写。
  * 对话事件占一整行分隔线。
  */
+/** 行数变了、且用户本来就贴在底部时，把视野补回最底下。 */
+function StickToEnd({ count, stuck }: { count: number; stuck: React.RefObject<boolean> }) {
+  const { scrollToEnd } = useMessageScroller();
+  const previous = useRef(count);
+
+  useEffect(() => {
+    if (count === previous.current) return;
+    previous.current = count;
+    if (stuck.current) scrollToEnd({ behavior: "auto" });
+  }, [count, scrollToEnd, stuck]);
+
+  return null;
+}
+
 function Messages({
   entries,
   hearing,
@@ -670,10 +685,28 @@ function Messages({
   speechOn: boolean;
 }) {
   const lines = linesOf(entries, new Date(), affinityOn);
+  // 上一次滚动后用户是不是还停在底部：自己在往上翻历史时，新消息不该把视野抢回去
+  const stuck = useRef(true);
+  const viewport = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const el = viewport.current;
+    if (!el) return;
+    const onScroll = () => {
+      stuck.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
+    };
+    onScroll();
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, []);
+
   return (
     <MessageScrollerProvider autoScroll defaultScrollPosition="end">
       <MessageScroller>
-        <MessageScrollerViewport>
+        {/* 新的一行进来时，本来就在底部就再贴一次底——她一次常常说好几句，输入法又改可视高度，
+            光靠 autoscroll 偶尔会停在半截 */}
+        <StickToEnd count={lines.length} stuck={stuck} />
+        <MessageScrollerViewport ref={viewport}>
           <MessageScrollerContent className="gap-1 px-3 pt-2 pb-4">
             {lines.map((line) =>
               line.kind === "day" ? (

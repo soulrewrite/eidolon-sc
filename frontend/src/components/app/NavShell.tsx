@@ -8,6 +8,7 @@ import { CallBar } from "@/components/conversations/CallBar";
 import { LiveCallLayer } from "@/components/conversations/CallLayer";
 import { useDirectory, useWide } from "@/components/conversations/ConversationDirectory";
 import { useFocusBack } from "@/components/conversations/useFocusBack";
+import { useAppHeight } from "@/hooks/useAppHeight";
 import { useStandOutfits } from "@/components/conversations/useStandOutfits";
 import type { Character } from "@/lib/api";
 import { NOT_OPEN, type LiveConversation } from "@/lib/liveConversation";
@@ -39,9 +40,11 @@ export function NavShell({ children }: { children: ReactNode }) {
   const isCovered = layer !== null && isLayerOpen;
   const barShown = call !== null && layer?.collapsed === true && showsShellCallBar(pathname, call.characterId);
   const focus = useFocusBack({ layerOpen: isCovered, noteShown: barShown });
+  // 输入法弹出时布局视口不变，外壳按 visualViewport 的真实高度撑，dock 和输入框才不会被键盘盖住
+  useAppHeight();
 
   return (
-    <div className="flex h-dvh flex-col md:flex-row">
+    <div className="flex h-dvh flex-col md:flex-row" style={{ height: "var(--app-height, 100dvh)" }}>
       <NavRail />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         {barShown && character && held && (
