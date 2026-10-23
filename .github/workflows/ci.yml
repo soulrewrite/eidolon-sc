@@ -16,19 +16,9 @@ concurrency:
 permissions:
   contents: read
 
-# 自托管 runner 跑在这台服务器上，出网统一走本机的 mihomo（mixed-port 7890）。
-# GitHub 托管的 runner 不需要这段，但这里已经不用托管 runner 了。
-env:
-  HTTP_PROXY: http://127.0.0.1:7890
-  HTTPS_PROXY: http://127.0.0.1:7890
-  http_proxy: http://127.0.0.1:7890
-  https_proxy: http://127.0.0.1:7890
-  NO_PROXY: localhost,127.0.0.1,::1
-  no_proxy: localhost,127.0.0.1,::1
-
 jobs:
   backend:
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ubuntu-latest
     # 平时 2 分钟左右；测试挂住时不等到 GitHub 默认的 6 小时
     timeout-minutes: 15
     defaults:
@@ -48,7 +38,7 @@ jobs:
       - run: uv run pytest -o faulthandler_timeout=120
 
   frontend:
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: frontend
@@ -67,7 +57,7 @@ jobs:
       # next build 由下面的镜像构建跑
 
   shellcheck:
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - run: shellcheck deploy/*.sh scripts/*.sh frontend/scripts/*.sh
@@ -76,7 +66,7 @@ jobs:
 
   image:
     needs: [backend, frontend, shellcheck]
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
@@ -106,11 +96,6 @@ jobs:
         with:
           context: ${{ matrix.service }}
           platforms: linux/amd64
-          # 构建容器共享宿主机网络，Dockerfile 里的 npm/uv 才能通过 127.0.0.1:7890 出网
-          network: host
-          build-args: |
-            HTTP_PROXY=http://127.0.0.1:7890
-            HTTPS_PROXY=http://127.0.0.1:7890
           push: ${{ github.event_name == 'push' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
