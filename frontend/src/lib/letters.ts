@@ -27,6 +27,69 @@ export type Letter = {
   read: boolean;
 };
 
+/**
+ * 印章上按的那个字（fork）：按角色定，不按名字末字取。
+ *
+ * 末字规则会错一大半：田中 摩美美 的印是「摩」不是「美」，大崎 甜花 是「甜」不是「花」，
+ * 郁田 阳希 是「羊」不是「希」，園田 智代子 是「巧」不是「子」。只有 巡 / 鐘 / 咲 / 穂 / 甘 /
+ * 朝 / 透 / 円 / 糸 / 日 / 羽 这些碰巧对得上。
+ */
+const SEAL_CHARACTER: Record<string, string> = {
+  // illumination STARS
+  mano: "真",
+  hiori: "灯",
+  meguru: "巡",
+  // L'Antica
+  kogane: "鐘",
+  mamimi: "摩",
+  sakuya: "咲",
+  yuika: "結",
+  kiriko: "霧",
+  // 放课后Climax Girls
+  kaho: "穂",
+  chiyoko: "巧",
+  juri: "樹",
+  rinze: "凛",
+  natsuha: "夏",
+  // ALSTROEMERIA
+  amana: "甘",
+  tenka: "甜",
+  chiyuki: "千",
+  // Straylight
+  asahi: "朝",
+  fuyuko: "冬",
+  mei: "愛",
+  // noctchill
+  toru: "透",
+  madoka: "円",
+  koito: "糸",
+  hinana: "雛",
+  // SHHis
+  nichika: "日",
+  mikoto: "美",
+  // CoMETIK
+  luca: "路",
+  hana: "羽",
+  haruki: "羊",
+  // 事务员
+  hazuki: "葉",
+};
+
+/**
+ * 她信封上按的那一个字。没登记的角色退回老规矩：中文名最后一个字，再退日文名第一个字
+ * （以后加角色不会因为少一行配置就画不出来）。
+ */
+export function sealCharacterOf(
+  letter: Pick<Letter, "character_id" | "character_name" | "character_name_zh">,
+): string {
+  const fixed = SEAL_CHARACTER[letter.character_id];
+  if (fixed) return fixed;
+
+  const zh = letter.character_name_zh?.trim();
+  if (zh) return zh.slice(-1);
+  return letter.character_name.trim().slice(0, 1);
+}
+
 /** How a letter is set, apart from the person it came from. */
 export type LetterLook = {
   /** The face the body is set in: 明朝 reads sharp, ゴシック reads plain. */

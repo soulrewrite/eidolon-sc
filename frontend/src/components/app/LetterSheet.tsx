@@ -7,14 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogTitle } from "@/components/ui/dialog";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { copy } from "@/i18n";
-import {
-  letterBody,
-  letterDay,
-  letterLookOf,
-  splitGreeting,
-  type Letter,
-  type LetterLook,
-} from "@/lib/letters";
+import { letterBody, letterDay, letterLookOf, sealCharacterOf, splitGreeting, type Letter, type LetterLook } from "@/lib/letters";
 import { cn } from "@/lib/utils";
 import { Ja } from "@/theme/Ja";
 
@@ -137,14 +130,6 @@ function Sheet({
 }
 
 
-/** The one character pressed into her seal: the last of her Chinese name (八宫巡 → 巡),
- * the first of her Japanese one when that is all there is. */
-function monogramOf(letter: Letter): string {
-  const zh = letter.character_name_zh?.trim();
-  if (zh) return zh.slice(-1);
-  return letter.character_name.trim().slice(0, 1);
-}
-
 /**
  * The envelope a letter arrives in (fork): her card art behind it, blurred, and a cream
  * envelope sealed in her colour. 「拆开」 opens the letter; the paper is behind it.
@@ -216,7 +201,7 @@ function EnvelopeView({
               color: `color-mix(in srgb, ${letter.color} 22%, #6b5400)`,
             }}
           >
-            {monogramOf(letter)}
+            {sealCharacterOf(letter)}
           </span>
         </div>
         {/* 地址线 */}
