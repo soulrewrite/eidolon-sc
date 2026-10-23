@@ -114,28 +114,36 @@ function Sheet({
           background: `color-mix(in srgb, ${letter.color} 60%, rgba(150,52,52,.55))`,
         }}
       />
-      <div className="relative" style={cardUrl ? { paddingRight: compact ? 0 : 128 } : undefined}>
-        {children}
-      </div>
       {cardUrl && (
         // eslint-disable-next-line @next/next/no-img-element
         <img
           src={cardUrl}
           alt=""
           aria-hidden
-          className="absolute top-6 right-6 hidden object-cover sm:block"
+          className="relative mb-3 w-full object-cover sm:absolute sm:top-6 sm:right-6 sm:mb-0 sm:w-[104px]"
           style={{
-            width: 104,
-            height: 146,
-            borderRadius: 3,
+            height: compact ? 112 : 146,
+            borderRadius: compact ? 6 : 3,
             boxShadow: "0 6px 16px -8px rgba(0, 0, 0, .5), 0 0 0 1px rgba(255, 255, 255, .6)",
           }}
         />
       )}
+      <div className="relative" style={cardUrl ? { paddingRight: compact ? 0 : 128 } : undefined}>
+        {children}
+      </div>
+
     </div>
   );
 }
 
+
+/** The one character pressed into her seal: the last of her Chinese name (八宫巡 → 巡),
+ * the first of her Japanese one when that is all there is. */
+function monogramOf(letter: Letter): string {
+  const zh = letter.character_name_zh?.trim();
+  if (zh) return zh.slice(-1);
+  return letter.character_name.trim().slice(0, 1);
+}
 
 /**
  * The envelope a letter arrives in (fork): her card art behind it, blurred, and a cream
@@ -174,7 +182,7 @@ function EnvelopeView({
           width: "min(86vw, 460px)",
           aspectRatio: "460 / 310",
           borderRadius: 7,
-          background: "linear-gradient(180deg, #f8f4ea, #eee6d5)",
+          background: "linear-gradient(180deg, #fbf8f1, #f6f1e6)",
           boxShadow:
             "0 34px 70px -28px rgba(0, 0, 0, .8), 0 0 0 1px rgba(120, 96, 64, .2) inset",
         }}
@@ -185,23 +193,31 @@ function EnvelopeView({
           className="absolute inset-0"
           style={{
             clipPath: "polygon(0 0, 100% 0, 50% 55%)",
-            background: "linear-gradient(180deg, #fffdf7 0%, #f8f2e4 72%, #efe7d5 100%)",
+            background: "linear-gradient(180deg, #fffefa 0%, #faf5e9 72%, #f3ecdb 100%)",
           }}
         />
         {/* 两道折痕 */}
         <svg viewBox="0 0 460 310" preserveAspectRatio="none" className="absolute inset-0 size-full" aria-hidden>
           <path d="M0 0 L230 170 L460 0" fill="none" stroke="rgba(120, 96, 64, .22)" strokeWidth="1" />
         </svg>
-        {/* 蜡封：她的颜色 */}
+        {/* 印章：双圈线框里压着她的名字，印色取她的颜色 */}
         <div
-          className="absolute top-[53%] left-1/2 flex size-[76px] -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full font-serif text-[26px]"
+          className="absolute top-[53%] left-1/2 flex size-[84px] -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2"
           style={{
-            background: `radial-gradient(circle at 34% 28%, #fff6b8, ${letter.color} 52%, #b39600 100%)`,
-            color: "#3a2f00",
-            boxShadow: "0 4px 10px rgba(0, 0, 0, .4), 0 0 0 2px rgba(255, 255, 255, .28) inset",
+            borderColor: `color-mix(in srgb, ${letter.color} 55%, rgba(120, 96, 0, .8))`,
+            background: "rgba(255, 255, 255, .55)",
+            boxShadow: "0 2px 6px rgba(0, 0, 0, .18), 0 0 0 4px rgba(255, 255, 255, .5) inset",
           }}
         >
-          ✉
+          <span
+            className="flex size-[66px] items-center justify-center rounded-full border font-serif text-[34px] leading-none"
+            style={{
+              borderColor: `color-mix(in srgb, ${letter.color} 45%, rgba(120, 96, 0, .45))`,
+              color: `color-mix(in srgb, ${letter.color} 22%, #6b5400)`,
+            }}
+          >
+            {monogramOf(letter)}
+          </span>
         </div>
         {/* 地址线 */}
         <div className="absolute bottom-9 left-9 flex flex-col gap-2.5" aria-hidden>
