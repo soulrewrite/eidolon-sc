@@ -2,8 +2,10 @@
 
 import asyncio
 import json
+import logging
 import math
 from urllib.parse import quote
+
 from collections.abc import AsyncIterator, Callable
 from contextlib import aclosing, asynccontextmanager
 from dataclasses import asdict
@@ -68,6 +70,8 @@ from eidolon.turn_outcome import TurnOutcome
 from eidolon.usage import OverLimit
 from eidolon import music as music_module
 from eidolon.world import World
+
+log = logging.getLogger(__name__)
 
 _PICTURE_CACHE = {"Cache-Control": "public, max-age=86400"}
 """Avatars and call backgrounds change only with a deploy (ADR-0003): browsers keep them a
@@ -526,37 +530,49 @@ def create_app(backend: Backend) -> FastAPI:
         """把网易云的音频转一手（fork）。
 
         官方外链 `song/media/outer/url` 会 302 到 `m7xx.music.126.net` 的 **http** 地址，
-        页面上直接引用就是混合内容，浏览器直接拦掉——手机上一首都放不了。
-        这里在服务端跟着跳过去、把 `audio/mpeg` 原样转出来，顺便把 Range 透传过去（能拖进度条）。
-        没有版权的歌那条链接会跳到 /404，这里认出不是音频就回 404，前端照实说。
+        页面上直接引用就是混合内容，浏览器一律拦掉——手机上一首都放不了。
+
+        分两步：先问出 CDN 那条签名地址（它有时效，每次都要现问），再带着 `Range` 去取。
+        不能把 `Range` 直接发给 `outer/url`——它不认，会回 404。
+        没有版权的歌会跳到 /404，认出不是音频就回 404，前端照实说。
         """
         import httpx
         from fastapi.responses import StreamingResponse
 
-        url = f"https://music.163.com/song/media/outer/url?id={quote(id)}.mp3"
-        client = httpx.AsyncClient(trust_env=False, timeout=20, follow_redirects=True)
-        upstream = await client.send(
-            client.build_request(
-                "GET",
-                url,
-                headers={
-                    "User-Agent": "Mozilla/5.0",
-                    "Referer": "https://music.163.com/",
-                    **({"Range": request.headers["Range"]} if "range" in request.headers else {}),
-                },
-            ),
-            stream=True,
-        )
-        kind = upstream.headers.get("content-type", "")
-        if upstream.status_code != 200 or not kind.startswith("audio/"):
-            await upstream.aclose()
-            await client.aclose()
-            raise HTTPException(404, "网易云没有这首的版权")
+        client = httpx.AsyncClient(trust_env=False, timeout=20)
+        outer = f"https://music.163.com/song/media/outer/url?id={quote(id)}.mp3"
+        try:
+            hop = await client.get(
+                outer,
+                headers={"User-Agent": "Mozilla/5.0", "Referer": "https://music.163.com/"},
+                follow_redirects=False,
+            )
+            location = hop.headers.get("location")
+            if hop.status_code not in (301, 302, 303, 307) or not location or location.endswith("/404"):
+                raise HTTPException(404, "网易云没有这首的版权")
 
-        headers = {}
+            headers = {"User-Agent": "Mozilla/5.0", "Referer": "https://music.163.com/"}
+            if "range" in request.headers:
+                headers["Range"] = request.headers["range"]
+            upstream = await client.send(
+                client.build_request("GET", location, headers=headers), stream=True
+            )
+            kind = upstream.headers.get("content-type", "")
+            if upstream.status_code not in (200, 206) or not kind.startswith("audio/"):
+                await upstream.aclose()
+                raise HTTPException(404, "网易云没有这首的版权")
+        except HTTPException:
+            await client.aclose()
+            raise
+        except httpx.HTTPError as error:
+            await client.aclose()
+            log.warning("取网易云音频失败（%s）：%r", id, error)
+            raise HTTPException(502, "取不到这首的音频") from None
+
+        export = {}
         for name in ("content-length", "content-range", "accept-ranges"):
             if name in upstream.headers:
-                headers[name] = upstream.headers[name]
+                export[name] = upstream.headers[name]
 
         async def pump() -> AsyncIterator[bytes]:
             try:
@@ -567,8 +583,7 @@ def create_app(backend: Backend) -> FastAPI:
                 await client.aclose()
 
         return StreamingResponse(
-            pump(), media_type=kind, headers=headers,
-            status_code=206 if "content-range" in headers else 200,
+            pump(), media_type=kind, headers=export, status_code=upstream.status_code
         )
 
     @app.get("/api/music/lookup")
