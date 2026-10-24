@@ -154,15 +154,18 @@ class MusicLibrary:
         async with self._lock:
             if title in self._found:
                 return self._found[title]
-            found = await self._ask(client, title)
+            ok, found = await self._ask(client, title)
             # 只缓存「查到」和「确实没有」，网络故障不写进缓存
-            if found is not False:
+            if ok:
                 self._found[title] = found
                 await asyncio.to_thread(self._save_cache)
-            return found if found is not False else None
+                return found
+            return None
 
-    async def _ask(self, client: httpx.AsyncClient, title: str) -> dict[str, Any] | None | bool:
-        """问一次网易云。返回 False 表示这次没问成（不要缓存）。"""
+    async def _ask(
+        self, client: httpx.AsyncClient, title: str
+    ) -> tuple[bool, dict[str, Any] | None]:
+        """问一次网易云：`(问成了吗, 查到的那首或 None)`。没问成时不要缓存。"""
         keyword = f"{title} シャイニーカラーズ"
         try:
             response = await client.get(
@@ -173,19 +176,19 @@ class MusicLibrary:
             )
         except httpx.HTTPError as error:
             log.warning("网易云搜索失败（%s）：%r", title, error)
-            return False
+            return False, None
         if response.status_code != 200:
             log.warning("网易云搜索返回 HTTP %s（%s）", response.status_code, title)
-            return False
+            return False, None
         try:
             payload = response.json()
         except ValueError:
-            return False
+            return False, None
         songs = (payload.get("result") or {}).get("songs") or []
         best = _best_match(title, songs)
         if best is None:
-            return None
-        return {
+            return True, None
+        return True, {
             "id": str(best["id"]),
             "name": best.get("name"),
             "artists": [artist.get("name") for artist in best.get("artists") or []],
