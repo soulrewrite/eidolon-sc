@@ -13,8 +13,8 @@ import {
   musicAlbums,
   musicLookup,
   musicSongs,
-  playerUrl,
   songPageUrl,
+  streamUrl,
   type Album,
   type FoundSong,
   type Song,
@@ -37,6 +37,7 @@ export function MusicPage() {
   const [found, setFound] = useState<Record<string, FoundSong | null>>({});
   const [searching, setSearching] = useState<string | null>(null);
   const [openAlbum, setOpenAlbum] = useState<string | null>(null);
+  const [unplayable, setUnplayable] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     let alive = true;
@@ -209,15 +210,20 @@ export function MusicPage() {
                           <p className="text-meta text-muted-foreground">{t.searching}</p>
                         ) : found[song.title] ? (
                           <div className="space-y-1">
-                            <iframe
-                              title={song.title}
-                              src={playerUrl((found[song.title] as FoundSong).id)}
-                              width="100%"
-                              height={66}
-                              frameBorder={0}
-                              allow="autoplay; encrypted-media"
-                              className="rounded-md"
+                            {/* 网易云那条外链是 http，页面上直接引用会被浏览器拦；
+                                后端转一手成同源 https，进度条靠 Range 透传 */}
+                            {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+                            <audio
+                              controls
+                              autoPlay
+                              preload="none"
+                              src={streamUrl((found[song.title] as FoundSong).id)}
+                              className="w-full"
+                              onError={() => setUnplayable((before) => ({ ...before, [song.title]: true }))}
                             />
+                            {unplayable[song.title] && (
+                              <p className="text-meta text-muted-foreground">{t.cannotPlay}</p>
+                            )}
                             <a
                               className="text-meta text-muted-foreground underline"
                               href={songPageUrl((found[song.title] as FoundSong).id)}

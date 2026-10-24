@@ -50,6 +50,7 @@ export const zh = {
     searching: "正在网易云找这首…",
     notOnNetease: "网易云没有这首（可能没上架，或者换了名字）",
     openInNetease: "在网易云打开",
+    cannotPlay: "这首在网易云没版权，放不了",
     noSongs: "还没有她唱过的歌",
     loading: "载入中",
   },

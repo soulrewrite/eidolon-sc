@@ -44,7 +44,12 @@ export async function musicLookup(title: string): Promise<FoundSong | null> {
   return (found as { found: FoundSong | null }).found;
 }
 
-/** 网易云的外链播放器。`type=2` 是单曲，`auto=1` 点开就放。 */
+/** 音频由后端转一手（同源 https）：网易云那条外链是 http，页面直接引用会被拦。 */
+export function streamUrl(id: string): string {
+  return `/api/music/stream?id=${encodeURIComponent(id)}`;
+}
+
+/** 网易云的外链播放器（留着备查；页面上已经改用 <audio>）。 */
 export function playerUrl(id: string): string {
   return `https://music.163.com/outchain/player?type=2&id=${encodeURIComponent(id)}&auto=1&height=66`;
 }
