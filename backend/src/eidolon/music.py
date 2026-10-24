@@ -41,6 +41,19 @@ HEADERS = {
 }
 
 
+UNIT_READINGS = {
+    "illumination STARS": "イルミネーションスターズ",
+    "L'Antica": "アンティーカ",
+    "放課後クライマックスガールズ": "放課後クライマックスガールズ",
+    "ALSTROEMERIA": "アルストロメリア",
+    "Straylight": "ストレイライト",
+    "noctchill": "ノクチル",
+    "SHHis": "シーズ",
+    "CoMETIK": "コメティック",
+}
+"""组合名在网易云上是片假名写的（世界设定里是拉丁名），挑歌手时两种都要认。"""
+
+
 def cache_path() -> Path:
     """查找结果的缓存文件，部署者可以用 `EIDOLON_MUSIC_CACHE` 换位置。"""
     return Path(os.environ.get("EIDOLON_MUSIC_CACHE", "/data/music-cache.json"))
@@ -156,7 +169,8 @@ class MusicLibrary:
         标题能对上一首已知的歌时，把她和一起唱的人当歌手提示——企划同名曲太多。
         """
         track = next((song for song in self._tracks if song.title == title), None)
-        hints: tuple[str, ...] = ("シャイニーカラーズ",)
+        # 组合名也要认：网易云上这些歌的歌手常常写成「イルミネーションスターズ」这种
+        hints: tuple[str, ...] = ("シャイニーカラーズ", *UNIT_READINGS.values())
         if track is not None:
             hints += track.singers
             if track.special_unit:
