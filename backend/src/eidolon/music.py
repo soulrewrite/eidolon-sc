@@ -24,8 +24,12 @@ from eidolon.world import World
 
 log = logging.getLogger(__name__)
 
-NETEASE_SEARCH = "https://music.163.com/api/search/get/web"
-"""网易云的搜索接口：国内的源，直连即可，不用代理。"""
+NETEASE_SEARCH = "https://music.163.com/api/cloudsearch/pc"
+"""网易云的搜索接口：国内的源，直连即可，不用代理。
+
+用 `cloudsearch/pc` 而不是 `search/get/web`——后者现在把 `result` 换成一串加密的十六进制
+（`{"result":"35b174…"}`），`cloudsearch` 还是明文。两种都别指望永远不变，所以解析写成容错式。
+"""
 
 # 网易云对没有 User-Agent、没有 Referer 的请求直接给空结果
 HEADERS = {
@@ -165,12 +169,15 @@ class MusicLibrary:
     async def _ask(
         self, client: httpx.AsyncClient, title: str
     ) -> tuple[bool, dict[str, Any] | None]:
-        """问一次网易云：`(问成了吗, 查到的那首或 None)`。没问成时不要缓存。"""
-        keyword = f"{title} シャイニーカラーズ"
+        """问一次网易云：`(问成了吗, 查到的那首或 None)`。没问成时不要缓存。
+
+        只用曲名搜：带上「シャイニーカラーズ」反而会把结果带偏（「虹になれ」那次返回了
+        一首松尾和子的歌）。查到之后再按歌手名挑，见 `_best_match`。
+        """
         try:
             response = await client.get(
                 NETEASE_SEARCH,
-                params={"s": keyword, "type": 1, "limit": 10, "offset": 0},
+                params={"s": title, "type": 1, "limit": 10, "offset": 0},
                 headers=HEADERS,
                 timeout=10.0,
             )
@@ -184,22 +191,29 @@ class MusicLibrary:
             payload = response.json()
         except ValueError:
             return False, None
-        songs = (payload.get("result") or {}).get("songs") or []
+        result = payload.get("result")
+        if not isinstance(result, dict):
+            # 加密过的响应（`{"result":"<十六进制>"}`）：这次没问到，别缓存成「没有」
+            log.warning("网易云给的是加密结果（%s），换接口或等它恢复", title)
+            return False, None
+        songs = result.get("songs") or []
         best = _best_match(title, songs)
         if best is None:
             return True, None
         # 网易云这两处不总是同一个形状：`album` 有时是对象、有时就是碟名，
         # `artists` 里也可能是字符串。按 object 猜就会 500（线上踩过一次）。
-        album = best.get("album")
+        # cloudsearch 用 `ar` / `al`，老接口用 `artists` / `album`，两种都认
+        album = best.get("al", best.get("album"))
+        artists = best.get("ar", best.get("artists")) or []
         return True, {
             "id": str(best["id"]),
             "name": best.get("name"),
             "artists": [
                 artist.get("name") if isinstance(artist, dict) else str(artist)
-                for artist in best.get("artists") or []
+                for artist in artists
             ],
             "album": album.get("name") if isinstance(album, dict) else (album or None),
-            "duration": best.get("duration"),
+            "duration": best.get("dt", best.get("duration")),
         }
 
     def _load_cache(self) -> None:
@@ -223,14 +237,32 @@ def _normalise(text: str) -> str:
     return "".join(ch for ch in text.lower() if ch.isalnum())
 
 
-def _best_match(title: str, songs: list[dict[str, Any]]) -> dict[str, Any] | None:
-    """挑一条：曲名相同的优先，其次是包含关系，都没有就算没有。"""
+def _artists_of(song: dict[str, Any]) -> list[str]:
+    artists = song.get("ar", song.get("artists")) or []
+    names: list[str] = []
+    for artist in artists:
+        name = artist.get("name") if isinstance(artist, dict) else artist
+        if name:
+            names.append(str(name))
+    return names
+
+
+def _best_match(
+    title: str, songs: list[dict[str, Any]], hint: str = "シャイニーカラーズ"
+) -> dict[str, Any] | None:
+    """挑一条：曲名相同且歌手对得上 > 曲名相同 > 曲名互相包含，都没有就算没有。
+
+    歌手只当加分项不当门槛——企划里翻唱、限定组合都可能有别的名义。
+    """
     wanted = _normalise(title)
     if not wanted:
         return None
-    for song in songs:
-        if _normalise(str(song.get("name") or "")) == wanted:
+    exact = [song for song in songs if _normalise(str(song.get("name") or "")) == wanted]
+    for song in exact:
+        if any(hint in artist for artist in _artists_of(song)):
             return song
+    if exact:
+        return exact[0]
     for song in songs:
         name = _normalise(str(song.get("name") or ""))
         if name and (wanted in name or name in wanted):
