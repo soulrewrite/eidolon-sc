@@ -188,11 +188,17 @@ class MusicLibrary:
         best = _best_match(title, songs)
         if best is None:
             return True, None
+        # 网易云这两处不总是同一个形状：`album` 有时是对象、有时就是碟名，
+        # `artists` 里也可能是字符串。按 object 猜就会 500（线上踩过一次）。
+        album = best.get("album")
         return True, {
             "id": str(best["id"]),
             "name": best.get("name"),
-            "artists": [artist.get("name") for artist in best.get("artists") or []],
-            "album": (best.get("album") or {}).get("name"),
+            "artists": [
+                artist.get("name") if isinstance(artist, dict) else str(artist)
+                for artist in best.get("artists") or []
+            ],
+            "album": album.get("name") if isinstance(album, dict) else (album or None),
             "duration": best.get("duration"),
         }
 
