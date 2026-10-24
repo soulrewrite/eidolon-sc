@@ -102,7 +102,7 @@ import logging
 from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from contextlib import nullcontext
 from dataclasses import asdict, dataclass, field, replace
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from typing import Literal, ParamSpec, TypeVar
 
@@ -398,20 +398,54 @@ def chat_history(messages: list[Message], turns: int | None) -> list[Message]:
 
 
 RESPOND_TO_GIFTS = (
-    "（先回应制作人说的话，再在合适的时候用你自己的方式回应收到的礼物，一次就够。）"
+    "（先回应制作人说的话，再在合适的时候用你自己的方式回应收到的礼物，一次就够。"
+    "上面写了是什么时候送的——过去一阵子的，就按那时候说，别装作刚拿到。）"
 )
 """Told her after the gifts she has not replied since, once however many there are."""
 
+RECENT_GIFT = timedelta(hours=3)
+"""多久以内的礼物还按「刚给的」说，不缀时间。更早的一定要说清是哪天哪一刻。"""
 
-def _narration(event: ConversationEvent, gift_catalog: Mapping[str, Gift]) -> str:
-    """What she is told of `event`, as it was."""
+
+def when_told(at: datetime, now: datetime, zone: ZoneInfo) -> str:
+    """`at` 怎么告诉它：今天 / 昨晚 / 昨天 / 前天 / N 天前 / 这个月几号 / 几月几号，带上钟点。
+
+    她分不清「昨晚送的」和「刚送的」，多半是因为只给了礼物、没给时间——这一句把时间补上。
+    """
+    local_at, local_now = at.astimezone(zone), now.astimezone(zone)
+    days = (local_now.date() - local_at.date()).days
+    clock = f"{local_at:%H:%M}"
+    if days <= 0:
+        return f"今天 {clock}"
+    if days == 1:
+        # 只给「昨天 21:14」，她还会当今晚；晚上送的要明说「昨晚」
+        return f"{'昨晚' if local_at.hour >= 18 else '昨天'} {clock}"
+    if days == 2:
+        return f"前天 {clock}"
+    if days < 7:
+        return f"{days} 天前"
+    if local_at.year == local_now.year and local_at.month == local_now.month:
+        return f"这个月 {local_at.day} 日 {clock}"
+    return f"{local_at.month} 月 {local_at.day} 日 {clock}"
+
+
+def _narration(
+    event: ConversationEvent, gift_catalog: Mapping[str, Gift], timezone: str, now: datetime
+) -> str:
+    """What she is told of `event`, as it was, and when it was, where the producer is."""
     if event.kind == "hung_up":
         return "（你挂断了制作人的电话。）"
     if event.kind == "ended":  # only read by a turn it will reject
         return "（你结束了和制作人的对话。）"
     assert event.gift_id is not None
     liked = "这是你喜欢的东西。" if event.liked else ""
-    return f"（制作人送给你一份{gift_catalog[event.gift_id].name}。{liked}）"
+    at = datetime.fromisoformat(event.created_at)
+    what = f"制作人送给你一份{gift_catalog[event.gift_id].name}。{liked}"
+    # 三小时以内还是「刚给的」，说时间反而啰嗦；更早的必须说清是哪天哪一刻，
+    # 否则她会把昨晚送的当成刚刚送的（FORK.md「时间」）。
+    if now - at < RECENT_GIFT:
+        return f"（{what}）"
+    return f"（{when_told(at, now, ZoneInfo(timezone))}，{what}）"
 
 
 def _reached_out(reach_out: ReachOut, timezone: str) -> str:
@@ -423,16 +457,22 @@ def _reached_out(reach_out: ReachOut, timezone: str) -> str:
 
 
 def _narration_line(
-    entry: ConversationEvent | ReachOut, gift_catalog: Mapping[str, Gift], timezone: str
+    entry: ConversationEvent | ReachOut,
+    gift_catalog: Mapping[str, Gift],
+    timezone: str,
+    now: datetime,
 ) -> str:
-    """The line of narration telling her of `entry`, the producer in `timezone`."""
+    """The line of narration telling her of `entry`, the producer in `timezone`, at `now`."""
     if isinstance(entry, ReachOut):
         return f"{_reached_out(entry, timezone)}\n"
-    return f"{_narration(entry, gift_catalog)}\n"
+    return f"{_narration(entry, gift_catalog, timezone, now)}\n"
 
 
 def narrations(
-    record: Sequence[Recorded], gift_catalog: Mapping[str, Gift], timezone: str
+    record: Sequence[Recorded],
+    gift_catalog: Mapping[str, Gift],
+    timezone: str,
+    now: datetime,
 ) -> dict[int | None, str]:
     """The narration of the events and reach-outs in `record`, by the id of the user message
     each comes before, None for those after them all: one line for each, then, if she has
@@ -443,7 +483,7 @@ def narrations(
     unanswered = False
     for entry in record:
         if not isinstance(entry, Message):
-            lines.append(_narration_line(entry, gift_catalog, timezone))
+            lines.append(_narration_line(entry, gift_catalog, timezone, now))
             if isinstance(entry, ReachOut):
                 unanswered = False  # reaching out, she has responded to the gifts before
             else:
@@ -497,7 +537,10 @@ so every protocol takes the prompt, ending with the user, as narration does."""
 
 
 def _since_last_turn(
-    record: Sequence[Recorded], gift_catalog: Mapping[str, Gift], timezone: str
+    record: Sequence[Recorded],
+    gift_catalog: Mapping[str, Gift],
+    timezone: str,
+    now: datetime,
 ) -> str:
     """The narration of the events and reach-outs after the last turn, one line each, the
     producer in `timezone`."""
@@ -506,7 +549,7 @@ def _since_last_turn(
         if isinstance(entry, Message):
             lines = []
         else:
-            lines.append(_narration_line(entry, gift_catalog, timezone))
+            lines.append(_narration_line(entry, gift_catalog, timezone, now))
     return "".join(lines)
 
 
@@ -706,7 +749,7 @@ class ConversationEngine:
         prompt = self._prompt(
             character, world_prompt, producer_prompt(profile),
             chat_history([*previous, *messages], turns),
-            narrations(record, self._gift_catalog, timezone),
+            narrations(record, self._gift_catalog, timezone, now),
             [
                 now_prompt(
                     profile, now, timezone, "in_call" if in_call is not None else "typing",
@@ -844,8 +887,8 @@ class ConversationEngine:
         world_prompt = (
             self._world.prompt(character.name, local_date(now, timezone)) if self._world else None
         )
-        told = narrations(record, self._gift_catalog, timezone)
-        told[None] = _since_last_turn(record, self._gift_catalog, timezone)
+        told = narrations(record, self._gift_catalog, timezone, now)
+        told[None] = _since_last_turn(record, self._gift_catalog, timezone, now)
         memories = await self._memory.for_reaching_out(
             conversation, timezone, last_turn_query([*previous, *messages])
         )
@@ -895,7 +938,7 @@ class ConversationEngine:
         world_prompt = (
             self._world.prompt(character.name, local_date(now, timezone)) if self._world else None
         )
-        told = narrations(record, self._gift_catalog, timezone)
+        told = narrations(record, self._gift_catalog, timezone, now)
         told[None] = ""
         memories = await self._memory.for_reaching_out(
             conversation, timezone, last_turn_query([*previous, *messages])

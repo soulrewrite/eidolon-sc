@@ -140,6 +140,27 @@ def _how_long(gap: timedelta) -> str:
     return f"{gap.days} 天"
 
 
+_DAY_PARTS = (
+    (5, "清晨"),
+    (8, "上午"),
+    (11, "中午"),
+    (13, "下午"),
+    (17, "傍晚"),
+    (19, "晚上"),
+    (23, "深夜"),
+)
+"""一天里的哪一段，按小时的下界。`0–4` 是深夜，`23` 之后也是深夜。"""
+
+
+def day_part(local: datetime) -> str:
+    """`local` 落在哪一段（清晨 / 上午 / 中午 / 下午 / 傍晚 / 晚上 / 深夜）。"""
+    part = "深夜"
+    for begins, name in _DAY_PARTS:
+        if local.hour >= begins:
+            part = name
+    return part
+
+
 def now_prompt(
     profile: ProducerProfile,
     now: datetime,
@@ -156,8 +177,12 @@ def now_prompt(
     local = now.astimezone(zone)
     lines = [
         "# 此刻",
+        # 除了钟点，还要说清是哪一段：只给「14:05」她照样能把白天当晚上
         f"现在是 {local.year}年{local.month}月{local.day}日"
-        f"（星期{_WEEKDAYS[local.weekday()]}）{local:%H:%M}（制作人所在时区 {timezone}）。",
+        f"（星期{_WEEKDAYS[local.weekday()]}）{local:%H:%M}，{day_part(local)}"
+        f"（制作人所在时区 {timezone}）。",
+        "他是在这个时间点跟你说话的。「今天」「昨晚」「刚才」都按上面这个时间算；"
+        "历史里写了时间的事，是那时候发生的，别当成刚刚。",
         _TALKING[talking],
     ]
     if last_contact is not None:
