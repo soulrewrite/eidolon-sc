@@ -208,13 +208,17 @@ class MusicLibrary:
         只用曲名搜：带上「シャイニーカラーズ」反而会把结果带偏（「虹になれ」那次返回了
         一首松尾和子的歌）。查到之后再按歌手名挑，见 `_best_match`。
         """
+        # 一条候选都没搜到，多半是被网易云限流了（同一关键词连着问会被掐），
+        # 这种不写进缓存——下次再问一次，别把「限流」记成「没有这首」。
+        saw_any = False
         for keyword in _keywords(title):
-            ok, found = await self._search(client, keyword, title, hints)
+            ok, found, had_candidates = await self._search(client, keyword, title, hints)
             if not ok:
                 return False, None
+            saw_any = saw_any or had_candidates
             if found is not None:
                 return True, found
-        return True, None
+        return (True, None) if saw_any else (False, None)
 
     async def _search(
         self,
@@ -222,8 +226,12 @@ class MusicLibrary:
         keyword: str,
         title: str,
         hints: Sequence[str],
-    ) -> tuple[bool, dict[str, Any] | None]:
-        """按 `keyword` 搜一次，再按 `title` 挑。返回 `(问成了吗, 挑中的那首)`。"""
+    ) -> tuple[bool, dict[str, Any] | None, bool]:
+        """按 `keyword` 搜一次，再按 `title` 挑。
+
+        返回 `(问成了吗, 挑中的那首, 有没有候选)`——最后一个用来区分「限流没搜到」
+        与「搜到了但对不上歌手」。
+        """
         try:
             response = await client.get(
                 NETEASE_SEARCH,
@@ -233,23 +241,23 @@ class MusicLibrary:
             )
         except httpx.HTTPError as error:
             log.warning("网易云搜索失败（%s）：%r", keyword, error)
-            return False, None
+            return False, None, False
         if response.status_code != 200:
             log.warning("网易云搜索返回 HTTP %s（%s）", response.status_code, keyword)
-            return False, None
+            return False, None, False
         try:
             payload = response.json()
         except ValueError:
-            return False, None
+            return False, None, False
         result = payload.get("result")
         if not isinstance(result, dict):
             # 加密过的响应（`{"result":"<十六进制>"}`）：这次没问到，别缓存成「没有」
             log.warning("网易云给的是加密结果（%s），换接口或等它恢复", keyword)
-            return False, None
+            return False, None, False
         songs = result.get("songs") or []
         best = _best_match(title, songs, hints)
         if best is None:
-            return True, None
+            return True, None, bool(songs)
         # 网易云这两处不总是同一个形状：`album` 有时是对象、有时就是碟名，
         # `artists` 里也可能是字符串。按 object 猜就会 500（线上踩过一次）。
         # cloudsearch 用 `ar` / `al`，老接口用 `artists` / `album`，两种都认
@@ -264,7 +272,7 @@ class MusicLibrary:
             ],
             "album": album.get("name") if isinstance(album, dict) else (album or None),
             "duration": best.get("dt", best.get("duration")),
-        }
+        }, True
 
     def _load_cache(self) -> None:
         try:
