@@ -528,7 +528,9 @@ def create_app(backend: Backend) -> FastAPI:
         """
         import httpx
 
-        async with httpx.AsyncClient() as client:
+        # 网易云是国内的源，**绕开容器里的机场代理**：走 socks 出去反而拿不到结果
+        # （HTTPS_PROXY 是给 Fish / TensorArt 用的），所以 trust_env 关掉。
+        async with httpx.AsyncClient(trust_env=False, timeout=10) as client:
             found = await songs.lookup(client, title)
         return {"found": found}
 
