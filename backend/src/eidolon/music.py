@@ -288,6 +288,10 @@ def _best_match(
     if not scored:
         return None
     scored.sort(key=lambda item: item[:3])
+    # 一个都对不上歌手时不猜：「Spread the Wings!!」在网易云有 EXILE 那版，
+    # 「Feel Jewel Dream」有学マス那版——宁可说「没找到」，也别放错人的歌。
+    if scored[0][0] != 0:
+        return None
     return scored[0][3]
 
 

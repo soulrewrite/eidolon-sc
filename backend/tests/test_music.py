@@ -108,7 +108,7 @@ def test_no_world_no_songs(tmp_path):
     ],
 )
 def test_which_listing_counts_as_the_same_song(wanted: str, listed: str, taken: bool):
-    songs = [{"id": 1, "name": listed}]
+    songs = [{"id": 1, "name": listed, "ar": [{"name": "シャイニーカラーズ"}]}]
     assert (_best_match(wanted, songs) is not None) is taken
 
 
