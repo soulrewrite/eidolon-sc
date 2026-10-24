@@ -7,8 +7,13 @@ import httpx
 
 import pytest
 
-from eidolon.music import MusicLibrary, _best_match, _normalise  # pyright: ignore[reportPrivateUsage]
-from eidolon.world import Release, Song, Track, World
+from eidolon.music import (  # pyright: ignore[reportPrivateUsage]
+    MusicLibrary,
+    _best_match,
+    _keywords,
+    _normalise,
+)
+from eidolon.world import Idol, Release, Song, Track, World
 
 
 def library(tmp_path) -> MusicLibrary:
@@ -18,7 +23,15 @@ def library(tmp_path) -> MusicLibrary:
         office="283プロダクション",
         staff=(),
         units=(),
-        idols=(),
+        idols=(
+            Idol(
+                name="櫻木真乃",
+                reading="さくらぎ まの",
+                unit="illumination STARS",
+                cv="関根瞳",
+                sources=(),
+            ),
+        ),
         releases=(
             Release(
                 catalog="LACM-14781",
@@ -53,6 +66,14 @@ def library(tmp_path) -> MusicLibrary:
                 sources=(),
             ),
             Song(
+                id="FELICE（櫻木真乃Ver.）",
+                title="FELICE（櫻木真乃Ver.）",
+                singers=("櫻木真乃",),
+                special_unit=None,
+                releases=(),
+                sources=(),
+            ),
+            Song(
                 id="ヒカリのdestination",
                 title="ヒカリのdestination",
                 singers=("風野灯織",),
@@ -67,7 +88,12 @@ def library(tmp_path) -> MusicLibrary:
 
 def test_her_songs_are_only_hers(tmp_path):
     music = library(tmp_path)
-    assert [song.title for song in music.songs("櫻木真乃")] == ["Spread the Wings!!", "虹になれ"]
+    # 顺序照世界设定里的曲目顺序，FELICE 的独唱版排在最后
+    assert [song.title for song in music.songs("櫻木真乃")] == [
+        "Spread the Wings!!",
+        "虹になれ",
+        "FELICE（櫻木真乃Ver.）",
+    ]
     assert [song.title for song in music.songs("風野灯織")] == [
         "Spread the Wings!!",
         "ヒカリのdestination",
@@ -75,7 +101,7 @@ def test_her_songs_are_only_hers(tmp_path):
 
 
 def test_every_song_when_no_singer_is_named(tmp_path):
-    assert len(library(tmp_path).songs()) == 3
+    assert len(library(tmp_path).songs()) == 4
 
 
 def test_singers_are_those_with_songs_in_world_order(tmp_path):
@@ -147,6 +173,28 @@ async def test_an_encrypted_result_is_not_taken_as_missing(tmp_path):
     )
     found = await music.lookup(cast("httpx.AsyncClient", hit), "虹になれ")
     assert found is not None and found["id"] == "7"
+
+
+def test_a_version_suffix_is_dropped_for_a_second_search():
+    """带全角括号的长串网易云搜不好，去掉括号里的版本说明再搜一次。"""
+    assert _keywords("FELICE（櫻木真乃Ver.）") == ["FELICE（櫻木真乃Ver.）", "FELICE"]
+    assert _keywords("虹になれ") == ["虹になれ"]
+
+
+async def test_a_solo_version_credited_to_her_cv_is_found(tmp_path):
+    """`FELICE（櫻木真乃Ver.）` 在网易云的歌手是 **関根瞳**（声优），不是组合也不是角色名。"""
+    music = library(tmp_path)
+    hit = FakeNetease(
+        {
+            "result": {
+                "songs": [
+                    {"id": 42, "name": "FELICE（櫻木真乃Ver.）", "ar": [{"name": "関根瞳"}]},
+                ]
+            }
+        }
+    )
+    found = await music.lookup(cast("httpx.AsyncClient", hit), "FELICE（櫻木真乃Ver.）")
+    assert found is not None and found["id"] == "42"
 
 
 def test_normalising_ignores_case_and_punctuation():

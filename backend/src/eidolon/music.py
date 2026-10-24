@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -106,6 +107,7 @@ class MusicLibrary:
         self._tracks: list[Track] = []
         self._albums: list[Album] = []
         self._by_singer: dict[str, list[Track]] = {}
+        self._cv_of: dict[str, str] = {}
         self._path = path if path is not None else cache_path()
         self._found: dict[str, dict[str, Any] | None] = {}
         self._lock = asyncio.Lock()
@@ -113,6 +115,9 @@ class MusicLibrary:
         if world is None:
             return
 
+        # 网易云上很多独唱版的歌手写的是声优本人（FELICE（櫻木真乃Ver.）的歌手是関根瞳），
+        # 世界设定里有 CV 名，拿来一起当歌手提示
+        self._cv_of = {idol.name: idol.cv for idol in world.idols if idol.cv}
         self._tracks = [
             Track(
                 id=song.id,
@@ -169,10 +174,12 @@ class MusicLibrary:
         标题能对上一首已知的歌时，把她和一起唱的人当歌手提示——企划同名曲太多。
         """
         track = next((song for song in self._tracks if song.title == title), None)
-        # 组合名也要认：网易云上这些歌的歌手常常写成「イルミネーションスターズ」这种
+        # 组合名也要认：网易云上这些歌的歌手常常写成「イルミネーションスターズ」这种；
+        # 独唱版则挂在声优名下（関根瞳），所以 CV 也一起当提示
         hints: tuple[str, ...] = ("シャイニーカラーズ", *UNIT_READINGS.values())
         if track is not None:
             hints += track.singers
+            hints += tuple(self._cv_of[name] for name in track.singers if name in self._cv_of)
             if track.special_unit:
                 hints += (track.special_unit,)
         cached = self.cached(title)
@@ -201,18 +208,34 @@ class MusicLibrary:
         只用曲名搜：带上「シャイニーカラーズ」反而会把结果带偏（「虹になれ」那次返回了
         一首松尾和子的歌）。查到之后再按歌手名挑，见 `_best_match`。
         """
+        for keyword in _keywords(title):
+            ok, found = await self._search(client, keyword, title, hints)
+            if not ok:
+                return False, None
+            if found is not None:
+                return True, found
+        return True, None
+
+    async def _search(
+        self,
+        client: httpx.AsyncClient,
+        keyword: str,
+        title: str,
+        hints: Sequence[str],
+    ) -> tuple[bool, dict[str, Any] | None]:
+        """按 `keyword` 搜一次，再按 `title` 挑。返回 `(问成了吗, 挑中的那首)`。"""
         try:
             response = await client.get(
                 NETEASE_SEARCH,
-                params={"s": title, "type": 1, "limit": 10, "offset": 0},
+                params={"s": keyword, "type": 1, "limit": 10, "offset": 0},
                 headers=HEADERS,
                 timeout=10.0,
             )
         except httpx.HTTPError as error:
-            log.warning("网易云搜索失败（%s）：%r", title, error)
+            log.warning("网易云搜索失败（%s）：%r", keyword, error)
             return False, None
         if response.status_code != 200:
-            log.warning("网易云搜索返回 HTTP %s（%s）", response.status_code, title)
+            log.warning("网易云搜索返回 HTTP %s（%s）", response.status_code, keyword)
             return False, None
         try:
             payload = response.json()
@@ -221,7 +244,7 @@ class MusicLibrary:
         result = payload.get("result")
         if not isinstance(result, dict):
             # 加密过的响应（`{"result":"<十六进制>"}`）：这次没问到，别缓存成「没有」
-            log.warning("网易云给的是加密结果（%s），换接口或等它恢复", title)
+            log.warning("网易云给的是加密结果（%s），换接口或等它恢复", keyword)
             return False, None
         songs = result.get("songs") or []
         best = _best_match(title, songs, hints)
@@ -262,6 +285,23 @@ class MusicLibrary:
 def _normalise(text: str) -> str:
     """比曲名时把空白、标点抹平：`Spread the Wings!!` 与 `Spread the Wings` 算同一首。"""
     return "".join(ch for ch in text.lower() if ch.isalnum())
+
+
+_VERSION_SUFFIX = re.compile(r"^(.*?)[（(]([^）)]*)[）)]\s*$")
+"""`FELICE（櫻木真乃Ver.）` 这种：括号里是版本说明，不是曲名的一部分。"""
+
+
+def _keywords(title: str) -> list[str]:
+    """先用曲名原样搜；不中时去掉括号里的版本说明再搜一次。
+
+    网易云对带全角括号的长串检索很差（`FELICE（櫻木真乃Ver.）` 搜出来是一堆别的歌），
+    去掉之后 `FELICE` 反而能搜到。
+    """
+    keywords = [title]
+    match = _VERSION_SUFFIX.match(title)
+    if match and match.group(1).strip():
+        keywords.append(match.group(1).strip())
+    return keywords
 
 
 def _artists_of(song: dict[str, Any]) -> list[str]:
