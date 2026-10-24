@@ -36,6 +36,9 @@ export { CircleAlert as FailureIcon } from "lucide-react";
 // 设置页「已绑定」的提示和它的关闭键（shadcn-redesign 18）。
 export { CircleCheck as SuccessIcon, X as CloseIcon } from "lucide-react";
 
+// 歌曲页（fork）：导航上的音符、曲目上的播放键、专辑页签。
+export { Music as MusicIcon, Play as PlayIcon, Disc3 as AlbumIcon } from "lucide-react";
+
 // 礼物页每日任务一节里没做完的一项（做完的用 SuccessIcon）；成就面板里没集齐的「集齐」一行也用它。
 export { Circle as TaskOpenIcon } from "lucide-react";
 

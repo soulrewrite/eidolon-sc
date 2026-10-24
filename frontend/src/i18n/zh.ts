@@ -32,10 +32,26 @@ export const zh = {
     conversations: "对话",
     /** 「对话」图标上有点时读屏读的名字：列表里有一行有没看过的搭话。 */
     conversationsUnseen: "对话，有没看过的搭话",
+    music: "歌曲",
     gifts: "礼物",
     /** 「礼物」图标上有点时读屏读的名字：有新到的抽奖次数。 */
     giftsRewarded: "礼物，有新到的抽奖次数",
     settings: "设置",
+  },
+  /** 歌曲页（fork，FORK.md「歌曲」）：曲目和专辑来自世界设定，播放交给网易云外链。 */
+  music: {
+    title: "歌曲与专辑",
+    songsTab: "歌曲",
+    albumsTab: "专辑",
+    everyone: "全部",
+    only: (name: string) => `只看 ${name}`,
+    play: (title: string) => `播放 ${title}`,
+    stop: "收起播放器",
+    searching: "正在网易云找这首…",
+    notOnNetease: "网易云没有这首（可能没上架，或者换了名字）",
+    openInNetease: "在网易云打开",
+    noSongs: "还没有她唱过的歌",
+    loading: "载入中",
   },
   /** 落地页的链接贴到聊天软件、社交网站时预览卡片上的文字（Open Graph、Twitter 卡片）。页面上不显示，不进字体子集。 */
   share: {

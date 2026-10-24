@@ -11,10 +11,11 @@ import { hasUnseen } from "@/lib/conversationList";
 import { currentNavItem, FIRST_LEVEL, isTyping, NAV_ITEMS, navDestination, type NavItem } from "@/lib/navShell";
 import { REPOSITORY_URL } from "@/lib/repository";
 import { cn } from "@/lib/utils";
-import { ConversationsIcon, GiftIcon, GitHubIcon, SettingsIcon } from "@/theme/icons";
+import { ConversationsIcon, GiftIcon, GitHubIcon, MusicIcon, SettingsIcon } from "@/theme/icons";
 
 const ICONS: Record<NavItem, typeof SettingsIcon> = {
   conversations: ConversationsIcon,
+  music: MusicIcon,
   gifts: GiftIcon,
   settings: SettingsIcon,
 };
@@ -83,7 +84,12 @@ function NavLinks({ className }: { className: string }) {
   const { guard, held, characters, latest, preferences, onScreen, newRewards } = useDirectory();
   const current = currentNavItem(pathname);
   const unseen = characters !== null && hasUnseen(characters, latest, { preferences, onScreen });
-  const dots: Record<NavItem, boolean> = { conversations: unseen, gifts: newRewards, settings: false };
+  const dots: Record<NavItem, boolean> = {
+    conversations: unseen,
+    music: false,
+    gifts: newRewards,
+    settings: false,
+  };
   return NAV_ITEMS.map((item) => {
     const Icon = ICONS[item];
     const isCurrent = item === current;

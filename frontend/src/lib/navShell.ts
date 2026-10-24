@@ -59,13 +59,14 @@ export function departure(href: string, callee: string | null): Departure {
 }
 
 /** The items of the rail and the dock, top to bottom (left to right on the dock). */
-export const NAV_ITEMS = ["conversations", "gifts", "settings"] as const;
+export const NAV_ITEMS = ["conversations", "music", "gifts", "settings"] as const;
 export type NavItem = (typeof NAV_ITEMS)[number];
 
 /** Each item's first level; her conversation page and a settings category below it are its second.
  * The gifts page has no second level. */
 export const FIRST_LEVEL: Record<NavItem, string> = {
   conversations: "/conversations",
+  music: "/music",
   gifts: "/gifts",
   settings: "/settings",
 };

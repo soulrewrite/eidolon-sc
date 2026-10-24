@@ -65,6 +65,7 @@ from eidolon.store import Conversation, ConversationEvent, IsCurrent, ReachOut, 
 from eidolon.throttle import Throttled
 from eidolon.turn_outcome import TurnOutcome
 from eidolon.usage import OverLimit
+from eidolon import music as music_module
 from eidolon.world import World
 
 _PICTURE_CACHE = {"Cache-Control": "public, max-age=86400"}
@@ -286,6 +287,7 @@ def create_app(backend: Backend) -> FastAPI:
         await backend.aclose()
 
     app = FastAPI(title="Eidolon-SC", lifespan=lifespan)
+    songs = music_module.MusicLibrary(backend.world)
     app.state.backend = backend
     app.middleware("http")(session_middleware(backend.settings))
 
@@ -495,6 +497,40 @@ def create_app(backend: Backend) -> FastAPI:
         if character is None or character.signature is None:
             raise HTTPException(404, "没有这位角色的签名")
         return _picture(character.signature, request)
+
+    @app.get("/api/music/songs")
+    def music_songs(character_id: str | None = None) -> dict:
+        """曲库（fork）：不传角色就是全部，传了就只给那一位唱过的。
+
+        `singers` 是能点开的那几位（有歌的偶像），前端拿它排头像。
+        """
+        singer = None
+        if character_id is not None:
+            character = characters.get(character_id)
+            if character is None:
+                raise HTTPException(404, "角色不存在")
+            singer = character.name
+        return {
+            "songs": [track.described() for track in songs.songs(singer)],
+            "singers": songs.singer_names(),
+        }
+
+    @app.get("/api/music/albums")
+    def music_albums() -> dict:
+        """专辑（fork）：按发售日倒序，带着曲目表。"""
+        return {"albums": [album.described() for album in songs.albums()]}
+
+    @app.get("/api/music/lookup")
+    async def music_lookup(title: str) -> dict:
+        """这首歌在网易云是哪一首（fork）：只返回 id 和名字，前端拿 id 拼外链播放器。
+
+        查不到就是 null——没上架、改名都可能；前端照实说「网易云没有这首」。
+        """
+        import httpx
+
+        async with httpx.AsyncClient() as client:
+            found = await songs.lookup(client, title)
+        return {"found": found}
 
     @app.get("/api/characters/{character_id}/affinity")
     def affinity(character_id: str, user_id: UserId) -> dict | None:
