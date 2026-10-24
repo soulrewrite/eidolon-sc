@@ -181,7 +181,8 @@ def now_prompt(
         f"现在是 {local.year}年{local.month}月{local.day}日"
         f"（星期{_WEEKDAYS[local.weekday()]}）{local:%H:%M}，{day_part(local)}"
         f"（制作人所在时区 {timezone}）。",
-        "他是在这个时间点跟你说话的。「今天」「昨晚」「刚才」都按上面这个时间算；"
+        # 「此刻」这一节不许出现性别代词：制作人可能是女性（test_affinity_prompt 守着）
+        "制作人是在这个时间点跟你说话的。「今天」「昨晚」「刚才」都按上面这个时间算；"
         "历史里写了时间的事，是那时候发生的，别当成刚刚。",
         _TALKING[talking],
     ]
