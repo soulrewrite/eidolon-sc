@@ -1,6 +1,9 @@
 """曲库与网易云查找（FORK.md「歌曲」）。不起服务，只测纯逻辑。"""
 
 from datetime import date
+from typing import cast
+
+import httpx
 
 import pytest
 
@@ -107,6 +110,43 @@ def test_no_world_no_songs(tmp_path):
 def test_which_listing_counts_as_the_same_song(wanted: str, listed: str, taken: bool):
     songs = [{"id": 1, "name": listed}]
     assert (_best_match(wanted, songs) is not None) is taken
+
+
+def test_a_same_title_by_someone_else_loses():
+    """「Spread the Wings!!」在网易云上还有 EXILE 那一版，只按曲名会比到别人。"""
+    songs = [
+        {"id": 1, "name": "Spread The Wings", "ar": [{"name": "PSYCHIC FEVER from EXILE TRIBE"}]},
+        {"id": 2, "name": "Spread the Wings!! (2023 Ver.)", "ar": [{"name": "シャイニーカラーズ"}]},
+    ]
+    assert (_best_match("Spread the Wings!!", songs) or {})["id"] == 2
+
+
+class FakeNetease:
+    """假 httpx client：`get` 直接回准备好的 JSON。"""
+
+    def __init__(self, payload: dict) -> None:
+        self.status_code = 200
+        self._payload = payload
+
+    async def get(self, *_: object, **__: object) -> object:
+        return self
+
+    def json(self) -> dict:
+        return self._payload
+
+
+async def test_an_encrypted_result_is_not_taken_as_missing(tmp_path):
+    """`search/get/web` 现在回 `{"result":"35b174…"}`：那是“没问到”，不能缓存成“没有这首”。"""
+    music = library(tmp_path)
+    encrypted = FakeNetease({"result": "35b1748964af8a7c1d883e3a6f3c773b"})
+    assert await music.lookup(cast("httpx.AsyncClient", encrypted), "虹になれ") is None
+
+    # 下次问成了，就该拿到——缓存里不能留着“没有”
+    hit = FakeNetease(
+        {"result": {"songs": [{"id": 7, "name": "虹になれ", "ar": [{"name": "シャイニーカラーズ"}]}]}}
+    )
+    found = await music.lookup(cast("httpx.AsyncClient", hit), "虹になれ")
+    assert found is not None and found["id"] == "7"
 
 
 def test_normalising_ignores_case_and_punctuation():

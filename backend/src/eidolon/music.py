@@ -16,6 +16,7 @@ import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from collections.abc import Sequence
 from typing import Any
 
 import httpx
@@ -150,7 +151,16 @@ class MusicLibrary:
         return self._found.get(title)
 
     async def lookup(self, client: httpx.AsyncClient, title: str) -> dict[str, Any] | None:
-        """这首歌在网易云是哪一首：`{id, name, artists, album}`，没有就是 None。"""
+        """这首歌在网易云是哪一首：`{id, name, artists, album}`，没有就是 None。
+
+        标题能对上一首已知的歌时，把她和一起唱的人当歌手提示——企划同名曲太多。
+        """
+        track = next((song for song in self._tracks if song.title == title), None)
+        hints: tuple[str, ...] = ("シャイニーカラーズ",)
+        if track is not None:
+            hints += track.singers
+            if track.special_unit:
+                hints += (track.special_unit,)
         cached = self.cached(title)
         if title in self._found:
             return cached
@@ -158,7 +168,7 @@ class MusicLibrary:
         async with self._lock:
             if title in self._found:
                 return self._found[title]
-            ok, found = await self._ask(client, title)
+            ok, found = await self._ask(client, title, hints)
             # 只缓存「查到」和「确实没有」，网络故障不写进缓存
             if ok:
                 self._found[title] = found
@@ -167,7 +177,10 @@ class MusicLibrary:
             return None
 
     async def _ask(
-        self, client: httpx.AsyncClient, title: str
+        self,
+        client: httpx.AsyncClient,
+        title: str,
+        hints: Sequence[str] = ("シャイニーカラーズ",),
     ) -> tuple[bool, dict[str, Any] | None]:
         """问一次网易云：`(问成了吗, 查到的那首或 None)`。没问成时不要缓存。
 
@@ -197,7 +210,7 @@ class MusicLibrary:
             log.warning("网易云给的是加密结果（%s），换接口或等它恢复", title)
             return False, None
         songs = result.get("songs") or []
-        best = _best_match(title, songs)
+        best = _best_match(title, songs, hints)
         if best is None:
             return True, None
         # 网易云这两处不总是同一个形状：`album` 有时是对象、有时就是碟名，
@@ -248,23 +261,36 @@ def _artists_of(song: dict[str, Any]) -> list[str]:
 
 
 def _best_match(
-    title: str, songs: list[dict[str, Any]], hint: str = "シャイニーカラーズ"
+    title: str, songs: list[dict[str, Any]], hints: Sequence[str] = ("シャイニーカラーズ",)
 ) -> dict[str, Any] | None:
-    """挑一条：曲名相同且歌手对得上 > 曲名相同 > 曲名互相包含，都没有就算没有。
+    """挑一条，按 `(歌手对得上吗, 曲名差多少, 名字长度)` 排。
 
-    歌手只当加分项不当门槛——企划里翻唱、限定组合都可能有别的名义。
+    歌手优先是必要的：「Spread the Wings!!」在网易云上还有 EXILE 的版本，
+    只按曲名比会挑到别人。歌手只是加分项、不是门槛——翻唱、限定组合都可能有别的名义。
     """
     wanted = _normalise(title)
     if not wanted:
         return None
-    exact = [song for song in songs if _normalise(str(song.get("name") or "")) == wanted]
-    for song in exact:
-        if any(hint in artist for artist in _artists_of(song)):
-            return song
-    if exact:
-        return exact[0]
+    scored: list[tuple[int, int, int, dict[str, Any]]] = []
     for song in songs:
         name = _normalise(str(song.get("name") or ""))
-        if name and (wanted in name or name in wanted):
-            return song
-    return None
+        if not name:
+            continue
+        if name == wanted:
+            rank = 0
+        elif wanted in name or name in wanted:
+            rank = 1
+        else:
+            continue
+        distances = [_artist_distance(_artists_of(song), hint) for hint in hints]
+        by_artist = min(distances) if distances else 99
+        scored.append((by_artist, rank, abs(len(name) - len(wanted)), song))
+    if not scored:
+        return None
+    scored.sort(key=lambda item: item[:3])
+    return scored[0][3]
+
+
+def _artist_distance(artists: Sequence[str], hint: str) -> int:
+    """歌手名里有没有 `hint`：命中 0，没命中 1。"""
+    return 0 if any(hint in artist for artist in artists) else 1
