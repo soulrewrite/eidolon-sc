@@ -237,8 +237,12 @@ class MusicLibrary:
         # 一条候选都没搜到，多半是被网易云限流了（同一关键词连着问会被掐），
         # 这种不写进缓存——下次再问一次，别把「限流」记成「没有这首」。
         saw_any = False
+        must: tuple[str, ...] = ()
+        named = _version_singer(title)
+        if named:
+            must = (named, self._cv_of.get(named, ""))
         for keyword in _keywords(title, terms):
-            ok, found, had_candidates = await self._search(client, keyword, title, hints)
+            ok, found, had_candidates = await self._search(client, keyword, title, hints, must)
             if not ok:
                 return False, None
             saw_any = saw_any or had_candidates
@@ -254,6 +258,7 @@ class MusicLibrary:
         keyword: str,
         title: str,
         hints: Sequence[str],
+        must: Sequence[str] = (),
     ) -> tuple[bool, dict[str, Any] | None, bool]:
         """按 `keyword` 搜一次，再按 `title` 挑。
 
@@ -283,7 +288,7 @@ class MusicLibrary:
             log.warning("网易云给的是加密结果（%s），换接口或等它恢复", keyword)
             return False, None, False
         songs = result.get("songs") or []
-        best = _best_match(title, songs, hints)
+        best = _best_match(title, songs, hints, must)
         if best is None:
             return True, None, bool(songs)
         # 网易云这两处不总是同一个形状：`album` 有时是对象、有时就是碟名，
@@ -387,7 +392,20 @@ def _normalise(text: str) -> str:
 
 
 _VERSION_SUFFIX = re.compile(r"^(.*?)[（(]([^）)]*)[）)]\s*$")
+
+_VER_SINGER = re.compile(r"[（(]\s*([^）)]*?)\s*(?:Ver\.?|ver\.?|版本?)\s*[）)]")
+"""`With you（大崎甘奈Ver.）` 里点名的那位：大崎甘奈。"""
 """`FELICE（櫻木真乃Ver.）` 这种：括号里是版本说明，不是曲名的一部分。"""
+
+
+def _version_singer(title: str) -> str | None:
+    """曲名里「（某某Ver.）」点的是谁；没点名就是 None。"""
+    match = _VER_SINGER.search(title)
+    if not match:
+        return None
+    name = match.group(1).strip()
+    # 只认人：`(2023 Ver.)` 这种是年份，不是谁唱的
+    return name if name and not name.isdigit() else None
 
 
 def _keywords(title: str, terms: Sequence[str] = ()) -> list[str]:
@@ -419,7 +437,10 @@ def _artists_of(song: dict[str, Any]) -> list[str]:
 
 
 def _best_match(
-    title: str, songs: list[dict[str, Any]], hints: Sequence[str] = ("シャイニーカラーズ",)
+    title: str,
+    songs: list[dict[str, Any]],
+    hints: Sequence[str] = ("シャイニーカラーズ",),
+    must: Sequence[str] = (),
 ) -> dict[str, Any] | None:
     """挑一条，按 `(歌手对得上吗, 曲名差多少, 名字长度)` 排。
 
@@ -429,6 +450,7 @@ def _best_match(
     wanted = _normalise(title)
     if not wanted:
         return None
+    wanted_must = [term for term in must if term]
     scored: list[tuple[int, int, int, dict[str, Any]]] = []
     for song in songs:
         name = _normalise(str(song.get("name") or ""))
@@ -440,6 +462,12 @@ def _best_match(
             rank = 1
         else:
             continue
+        if wanted_must:
+            # 曲名里点名了「某某Ver.」：演唱者或曲名得对得上那位，
+            # 否则会把组合版当成独唱版（`With you（大崎甘奈Ver.）` 就吃过这个亏）
+            text = f"{song.get('name') or ''} {' '.join(_artists_of(song))}"
+            if not any(term in text for term in wanted_must):
+                continue
         distances = [_artist_distance(_artists_of(song), hint) for hint in hints]
         by_artist = min(distances) if distances else 99
         scored.append((by_artist, rank, abs(len(name) - len(wanted)), song))

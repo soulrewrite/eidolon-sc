@@ -12,6 +12,7 @@ from eidolon.music import (  # pyright: ignore[reportPrivateUsage]
     _best_match,
     _keywords,
     _normalise,
+    _version_singer,
 )
 from eidolon.world import Idol, Release, Song, Track, World
 
@@ -166,6 +167,24 @@ def test_a_common_title_is_searched_with_her_group(tmp_path):
     keywords = _keywords("Sparkle", ["イルミネーションスターズ"])
     assert keywords[0] == "Sparkle"
     assert "Sparkle イルミネーションスターズ" in keywords
+
+
+def test_a_version_suffix_names_who_sings_it():
+    assert _version_singer("With you（大崎甘奈Ver.）") == "大崎甘奈"
+    assert _version_singer("FELICE（櫻木真乃Ver.）") == "櫻木真乃"
+    assert _version_singer("Spread the Wings!! (2023 Ver.)") is None
+
+
+def test_a_named_version_never_takes_the_group_version():
+    """点的是「大崎甘奈Ver.」，就不能拿アルストロメリア那版顶上。"""
+    base = {"id": 1, "name": "With you", "ar": [{"name": "アルストロメリア"}]}
+    solo = {"id": 2, "name": "With you（大崎甘奈Ver.）", "ar": [{"name": "高橋花林"}]}
+    must = ("大崎甘奈", "高橋花林")
+
+    hints = ("シャイニーカラーズ", "高橋花林")  # lookup 里 CV 也在提示里
+    assert (_best_match("With you（大崎甘奈Ver.）", [base, solo], hints, must) or {})["id"] == 2
+    # 只有组合版时宁可说没有，也不要放错的版本
+    assert _best_match("With you（大崎甘奈Ver.）", [base], hints, must) is None
 
 
 class DjClient:
