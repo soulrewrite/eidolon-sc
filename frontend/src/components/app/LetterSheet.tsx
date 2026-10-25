@@ -36,7 +36,6 @@ function Sheet({
   row,
   compact,
   children,
-  cardUrl,
   wash = 0.55,
 }: {
   letter: Letter;
@@ -44,8 +43,6 @@ function Sheet({
   row: number;
   compact: boolean;
   children: React.ReactNode;
-  /** 她的卡面，压在纸的右上角（信封用的那张）；null 时不放。 */
-  cardUrl?: string | null;
   /** How much paper colour covers her background; the less, the more of her shows. */
   wash?: number;
 }) {
@@ -107,21 +104,7 @@ function Sheet({
           background: `color-mix(in srgb, ${letter.color} 60%, rgba(150,52,52,.55))`,
         }}
       />
-      {cardUrl && (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={cardUrl}
-          alt=""
-          aria-hidden
-          className="relative mb-3 w-full object-cover sm:absolute sm:top-6 sm:right-6 sm:mb-0 sm:w-[104px]"
-          style={{
-            height: compact ? 112 : 146,
-            borderRadius: compact ? 6 : 3,
-            boxShadow: "0 6px 16px -8px rgba(0, 0, 0, .5), 0 0 0 1px rgba(255, 255, 255, .6)",
-          }}
-        />
-      )}
-      <div className="relative" style={cardUrl ? { paddingRight: compact ? 0 : 128 } : undefined}>
+      <div className="relative">
         {children}
       </div>
 
@@ -303,7 +286,7 @@ export function LetterSheet({
           // 两张纸等高：中文那页通常短一截，多出来的横线就当还没写到的信纸，桌面不会空一块。
           // 手机也留一圈边：她的背景在纸外露出一点，纸是圆角的。
           <div className="relative flex flex-col gap-3 p-4 sm:flex-row sm:items-stretch sm:gap-6 sm:p-6">
-            <Sheet letter={letter} look={look} row={row} compact={compact} cardUrl={letter.envelope_url}>
+            <Sheet letter={letter} look={look} row={row} compact={compact}>
               <div
                 className="flex items-baseline justify-end gap-2 tabular-nums"
                 style={{
@@ -397,6 +380,23 @@ export function LetterSheet({
                   {segment.zh}
                 </p>
               ))}
+              {letter.envelope_url && (
+                // 卡面放在中文最后：日文那页不再被它挤窄，整张卡也放得下（不再裁成竖条，
+                // 她的脸、衣装和背景都在）。手机上占满纸宽，桌面上靠右、约两张名片宽。
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={letter.envelope_url}
+                  alt=""
+                  aria-hidden
+                  className="mt-3 ml-auto block h-auto w-full object-cover sm:w-[224px]"
+                  style={{
+                    marginTop: "calc(var(--row) * .7)",
+                    borderRadius: compact ? 6 : 3,
+                    boxShadow:
+                      "0 8px 20px -10px rgba(0, 0, 0, .45), 0 0 0 1px rgba(255, 255, 255, .6)",
+                  }}
+                />
+              )}
             </Sheet>
           </div>
         )}

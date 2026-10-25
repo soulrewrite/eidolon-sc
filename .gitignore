@@ -10,6 +10,7 @@
 # 其他 agent 工具的本机安装
 .dsh/
 .pi/
+.mimosa/
 .impeccable/
 skills-lock.json
 
