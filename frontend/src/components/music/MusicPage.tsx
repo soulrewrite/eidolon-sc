@@ -23,6 +23,12 @@ import { AlbumIcon, MusicIcon, PlayIcon } from "@/theme/icons";
 
 const t = copy.music;
 
+/** 秒数写成 0:07 / 5:12。 */
+function clock(seconds: number): string {
+  const whole = Math.max(0, Math.floor(seconds));
+  return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`;
+}
+
 type Tab = "songs" | "albums";
 
 export function MusicPage() {
@@ -104,7 +110,7 @@ export function MusicPage() {
       }
     }
     if (hit === null) {
-      setNowPlaying(title);   // 没查到：展开那句「没有这首」
+      setNowPlaying(title);   // 没查到：展开那句「网易云没有这首」
       return;
     }
     musicPlayback.play(title, hit.id);
@@ -216,13 +222,29 @@ export function MusicPage() {
                       <div className="mt-2">
                         {searching === song.title ? (
                           <p className="text-meta text-muted-foreground">{t.searching}</p>
-                        ) : found[song.title] ? (
-                          <p className="mt-1 ms-12 text-meta text-muted-foreground">
-                            {now?.title === song.title ? t.playingHint : t.tapToPlay}
-                          </p>
-                        ) : (
+                        ) : now?.title === song.title && now.unplayable ? (
+                          // 唯一要说明的情况：取不到那条音频（多半是网易云没版权）
+                          <p className="text-meta text-muted-foreground">{t.cannotPlay}</p>
+                        ) : now?.title === song.title ? (
+                          <div className="ms-12 flex items-center gap-2">
+                            <div className="h-1 min-w-0 flex-1 overflow-hidden rounded-full bg-muted">
+                              <div
+                                className="h-full bg-foreground/40"
+                                style={{
+                                  width:
+                                    now.duration > 0
+                                      ? `${Math.min(100, (now.at / now.duration) * 100)}%`
+                                      : "0%",
+                                }}
+                              />
+                            </div>
+                            <span className="shrink-0 text-meta text-muted-foreground tabular-nums">
+                              {clock(now.at)} / {now.duration > 0 ? clock(now.duration) : "…"}
+                            </span>
+                          </div>
+                        ) : found[song.title] === null ? (
                           <p className="text-meta text-muted-foreground">{t.notOnNetease}</p>
-                        )}
+                        ) : null}
                       </div>
                     )}
                   </li>
