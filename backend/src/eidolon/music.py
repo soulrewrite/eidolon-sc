@@ -177,6 +177,13 @@ class MusicLibrary:
     def albums(self) -> list[Album]:
         return self._albums
 
+    def alternatives(self, title: str) -> list[str]:
+        """同一首在别的碟上的网易云 id：这张没版权时换下一张。"""
+        hit = self._found.get(title)
+        if not isinstance(hit, dict):
+            return []
+        return [str(other) for other in hit.get("alternatives") or [] if other]
+
     def album(self, catalog: str) -> Album | None:
         return next((album for album in self._albums if album.catalog == catalog), None)
 
@@ -297,11 +304,18 @@ class MusicLibrary:
                 best = _best_match(title, songs, hints, must)
         if best is None:
             return True, None, bool(songs)
+        best["_alternatives"] = _other_copies(title, songs, hints, best)
         # 网易云这两处不总是同一个形状：`album` 有时是对象、有时就是碟名，
         # `artists` 里也可能是字符串。按 object 猜就会 500（线上踩过一次）。
         # cloudsearch 用 `ar` / `al`，老接口用 `artists` / `album`，两种都认
         album = best.get("al", best.get("album"))
         artists = best.get("ar", best.get("artists")) or []
+        # 同一首可能有好几张碟（2023 Ver.、合集、演唱會），有一张没版权就换下一张
+        alternatives = [
+            str(other["id"])
+            for other in (best.get("_alternatives") or [])
+            if str(other.get("id")) != str(best.get("id"))
+        ][:3]
         return True, {
             "id": str(best["id"]),
             "name": best.get("name"),
@@ -311,6 +325,7 @@ class MusicLibrary:
             ],
             "album": album.get("name") if isinstance(album, dict) else (album or None),
             "duration": best.get("dt", best.get("duration")),
+            "alternatives": alternatives,
         }, True
 
     async def _from_programs(self, client: httpx.AsyncClient, title: str) -> dict[str, Any] | None:
@@ -399,6 +414,9 @@ def _normalise(text: str) -> str:
 
 _VERSION_SUFFIX = re.compile(r"^(.*?)[（(]([^）)]*)[）)]\s*$")
 
+_TRUSTED_ALBUM = re.compile(r"(shiny\s*colors|シャイニーカラーズ|\b28\s*colors\b)", re.IGNORECASE)
+"""这些碟名里带企划名的，基本可以认定是企划自己的录音（多人的群唱尤其常挂在整企划名下）。"""
+
 _VER_SINGER = re.compile(r"[（(]\s*([^）)]*?)\s*(?:Ver\.?|ver\.?|版本?)\s*[）)]")
 """`With you（大崎甘奈Ver.）` 里点名的那位：大崎甘奈。"""
 """`FELICE（櫻木真乃Ver.）` 这种：括号里是版本说明，不是曲名的一部分。"""
@@ -436,6 +454,13 @@ def _keywords(title: str, terms: Sequence[str] = ()) -> list[str]:
         if term and term not in keywords:
             keywords.append(f"{bare} {term}")
     return keywords
+
+
+def _trusted_album(song: dict[str, Any]) -> bool:
+    """这首所在的碟是不是企划自己的（`THE IDOLM@STER SHINY COLORS …` / `-28 colors-`）。"""
+    album = song.get("al", song.get("album"))
+    name = album.get("name") if isinstance(album, dict) else album
+    return bool(name and _TRUSTED_ALBUM.search(str(name)))
 
 
 def _artists_of(song: dict[str, Any]) -> list[str]:
@@ -478,22 +503,56 @@ def _best_match(
         if wanted_must:
             # 曲名里点名了「某某Ver.」：演唱者或曲名得对得上那位，
             # 否则会把组合版当成独唱版（`With you（大崎甘奈Ver.）` 就吃过这个亏）
-            text = f"{song.get('name') or ''} {' '.join(_artists_of(song))}"
-            if not any(term in text for term in wanted_must):
+            text = _squeeze(f"{song.get('name') or ''} {' '.join(_artists_of(song))}")
+            if not any(_squeeze(term) in text for term in wanted_must):
                 continue
         distances = [_artist_distance(_artists_of(song), hint) for hint in hints]
         by_artist = min(distances) if distances else 99
+        if by_artist != 0 and _trusted_album(song):
+            # 歌手对不上但碟是企划自己的：`BEAST MODE` 挂在 Σ Desire 名下就是这样
+            by_artist = 0
         scored.append((by_artist, rank, abs(len(name) - len(wanted)), song))
+    return (_ranked(scored) or [None])[0]
+
+
+def _other_copies(
+    title: str, songs: list[dict[str, Any]], hints: Sequence[str], best: dict[str, Any]
+) -> list[dict[str, Any]]:
+    """同一首歌在别的碟上的版本（2023 Ver.、合集、演唱会）：一张没版权时留着换。"""
+    wanted = _normalise(title)
+    copies = []
+    for song in songs:
+        if song is best:
+            continue
+        name = _normalise(str(song.get("name") or ""))
+        if not name or not (name == wanted or wanted in name or name in wanted):
+            continue
+        if min(_artist_distance(_artists_of(song), hint) for hint in hints) != 0 and not _trusted_album(song):
+            continue
+        copies.append(song)
+    return copies[:3]
+
+
+def _ranked(scored: list[tuple[int, int, int, dict[str, Any]]]) -> list[dict[str, Any]]:
+    """排好序、只留下歌手对得上的那些。
+
+    一个都对不上歌手就不猜：「Spread the Wings!!」在网易云有 EXILE 那版，
+    「Feel Jewel Dream」有学マス那版——宁可说「没找到」，也别放错人的歌。
+    """
     if not scored:
-        return None
+        return []
     scored.sort(key=lambda item: item[:3])
-    # 一个都对不上歌手时不猜：「Spread the Wings!!」在网易云有 EXILE 那版，
-    # 「Feel Jewel Dream」有学マス那版——宁可说「没找到」，也别放错人的歌。
     if scored[0][0] != 0:
-        return None
-    return scored[0][3]
+        return []
+    return [song for _, _, _, song in scored]
+
+
+def _squeeze(text: str) -> str:
+    """去掉所有空白：网易云写「浅倉 透」，世界设定写「浅倉透」。"""
+    return "".join(text.split())
 
 
 def _artist_distance(artists: Sequence[str], hint: str) -> int:
-    """歌手名里有没有 `hint`：命中 0，没命中 1。"""
-    return 0 if any(hint in artist for artist in artists) else 1
+    """歌手名里有没有 `hint`：命中 0，没命中 1。空白不算差别。"""
+    folded = _squeeze(hint)
+    return 0 if any(folded in _squeeze(artist) for artist in artists) else 1

@@ -46,7 +46,7 @@ export function MusicPlayer() {
       return;
     }
     if (playing.unplayable) return;  // 取不到的那条不再试
-    element.src = streamUrl(playing.neteaseId);
+    element.src = streamUrl(playing.neteaseId, playing.title);
     // 自动播放可能被浏览器拦（没点过页面），拦了就照实停掉，不留一个空转的状态
     void element.play().catch(() => musicPlayback.stop());
     // eslint-disable-next-line react-hooks/exhaustive-deps

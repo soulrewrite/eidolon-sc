@@ -44,9 +44,12 @@ export async function musicLookup(title: string): Promise<FoundSong | null> {
   return (found as { found: FoundSong | null }).found;
 }
 
-/** 音频由后端转一手（同源 https）：网易云那条外链是 http，页面直接引用会被拦。 */
-export function streamUrl(id: string): string {
-  return `/api/music/stream?id=${encodeURIComponent(id)}`;
+/**
+ * 音频由后端转一手（同源 https）：网易云那条外链是 http，页面直接引用会被拦。
+ * 带上曲名：这张碟没版权时，后端会换同一首歌在别的碟上的版本（`Spread the Wings!!` 就是）。
+ */
+export function streamUrl(id: string, title: string): string {
+  return `/api/music/stream?id=${encodeURIComponent(id)}&title=${encodeURIComponent(title)}`;
 }
 
 /** 网易云的外链播放器（留着备查；页面上已经改用 <audio>）。 */

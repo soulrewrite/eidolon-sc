@@ -526,7 +526,7 @@ def create_app(backend: Backend) -> FastAPI:
         return {"albums": [album.described() for album in songs.albums()]}
 
     @app.get("/api/music/stream")
-    async def music_stream(id: str, request: Request) -> Response:
+    async def music_stream(id: str, request: Request, title: str = "") -> Response:
         """把网易云的音频转一手（fork）。
 
         官方外链 `song/media/outer/url` 会 302 到 `m7xx.music.126.net` 的 **http** 地址，
@@ -540,34 +540,52 @@ def create_app(backend: Backend) -> FastAPI:
         from fastapi.responses import StreamingResponse
 
         client = httpx.AsyncClient(trust_env=False, timeout=20)
-        outer = f"https://music.163.com/song/media/outer/url?id={quote(id)}.mp3"
-        try:
+
+        async def location_of(candidate: str) -> str | None:
+            """问出这一首的 CDN 地址；没有版权就是 None。"""
+            outer = f"https://music.163.com/song/media/outer/url?id={quote(candidate)}.mp3"
             hop = await client.get(
                 outer,
                 headers={"User-Agent": "Mozilla/5.0", "Referer": "https://music.163.com/"},
                 follow_redirects=False,
             )
-            location = hop.headers.get("location")
-            if hop.status_code not in (301, 302, 303, 307) or not location or location.endswith("/404"):
-                raise HTTPException(404, "网易云没有这首的版权")
+            found_at = hop.headers.get("location")
+            if hop.status_code not in (301, 302, 303, 307) or not found_at:
+                return None
+            if found_at.endswith("/404"):
+                return None
+            return found_at
 
-            headers = {"User-Agent": "Mozilla/5.0", "Referer": "https://music.163.com/"}
-            if "range" in request.headers:
-                headers["Range"] = request.headers["range"]
-            upstream = await client.send(
-                client.build_request("GET", location, headers=headers), stream=True
-            )
-            kind = upstream.headers.get("content-type", "")
-            if upstream.status_code not in (200, 206) or not kind.startswith("audio/"):
-                await upstream.aclose()
-                raise HTTPException(404, "网易云没有这首的版权")
-        except HTTPException:
-            await client.aclose()
-            raise
+        # 先把这一首试一遍，不行再试同一首歌在别的碟上的版本
+        # （`Spread the Wings!!` 那张碟网易云没版权，2023 Ver. 有）
+        tried = [id, *(songs.alternatives(title) if title else [])]
+        upstream = None
+        try:
+            for candidate in tried:
+                found_at = await location_of(candidate)
+                if found_at is None:
+                    continue
+                headers = {"User-Agent": "Mozilla/5.0", "Referer": "https://music.163.com/"}
+                if "range" in request.headers:
+                    headers["Range"] = request.headers["range"]
+                attempt = await client.send(
+                    client.build_request("GET", found_at, headers=headers), stream=True
+                )
+                kind = attempt.headers.get("content-type", "")
+                if attempt.status_code in (200, 206) and kind.startswith("audio/"):
+                    upstream = attempt
+                    break
+                await attempt.aclose()
         except httpx.HTTPError as error:
             await client.aclose()
             log.warning("取网易云音频失败（%s）：%r", id, error)
             raise HTTPException(502, "取不到这首的音频") from None
+
+        if upstream is None:
+            await client.aclose()
+            raise HTTPException(404, "网易云没有这首的版权")
+        kind = upstream.headers.get("content-type", "audio/mpeg")
+        kind = upstream.headers.get("content-type", "audio/mpeg")
 
         export = {}
         for name in ("content-length", "content-range", "accept-ranges"):
