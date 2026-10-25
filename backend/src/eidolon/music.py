@@ -55,6 +55,18 @@ UNIT_READINGS = {
 """组合名在网易云上是片假名写的（世界设定里是拉丁名），挑歌手时两种都要认。"""
 
 
+DJ_PROGRAMS_ENV = "EIDOLON_MUSIC_DJ_PROGRAMS"
+
+
+def dj_programs_path() -> Path:
+    """电台节目清单：一行一个网易云节目 id（`music.163.com/#/dj?id=…` 里那串数字）。
+
+    没单独上架的歌常常只在这些节目里，比如「With you（大崎甘奈Ver.）」。
+    文件不存在就当没有，功能自然关掉。
+    """
+    return Path(os.environ.get(DJ_PROGRAMS_ENV, "/data/music-dj.txt"))
+
+
 def cache_path() -> Path:
     """查找结果的缓存文件，部署者可以用 `EIDOLON_MUSIC_CACHE` 换位置。"""
     return Path(os.environ.get("EIDOLON_MUSIC_CACHE", "/data/music-cache.json"))
@@ -108,16 +120,20 @@ class MusicLibrary:
         self._albums: list[Album] = []
         self._by_singer: dict[str, list[Track]] = {}
         self._cv_of: dict[str, str] = {}
+        self._unit_of: dict[str, str] = {}
         self._path = path if path is not None else cache_path()
         self._found: dict[str, dict[str, Any] | None] = {}
+        self._programs: list[str] = []
         self._lock = asyncio.Lock()
         self._load_cache()
+        self._programs = _read_program_ids()
         if world is None:
             return
 
         # 网易云上很多独唱版的歌手写的是声优本人（FELICE（櫻木真乃Ver.）的歌手是関根瞳），
         # 世界设定里有 CV 名，拿来一起当歌手提示
         self._cv_of = {idol.name: idol.cv for idol in world.idols if idol.cv}
+        self._unit_of = {idol.name: idol.unit for idol in world.idols if idol.unit}
         self._tracks = [
             Track(
                 id=song.id,
@@ -177,11 +193,20 @@ class MusicLibrary:
         # 组合名也要认：网易云上这些歌的歌手常常写成「イルミネーションスターズ」这种；
         # 独唱版则挂在声优名下（関根瞳），所以 CV 也一起当提示
         hints: tuple[str, ...] = ("シャイニーカラーズ", *UNIT_READINGS.values())
+        terms: list[str] = []
         if track is not None:
             hints += track.singers
             hints += tuple(self._cv_of[name] for name in track.singers if name in self._cv_of)
             if track.special_unit:
                 hints += (track.special_unit,)
+            if track.singers:
+                first = track.singers[0]
+                if first in self._cv_of:
+                    terms.append(self._cv_of[first])
+                unit = self._unit_of.get(first)
+                if unit:
+                    terms.append(UNIT_READINGS.get(unit, unit))
+                terms.append(first)
         cached = self.cached(title)
         if title in self._found:
             return cached
@@ -189,7 +214,7 @@ class MusicLibrary:
         async with self._lock:
             if title in self._found:
                 return self._found[title]
-            ok, found = await self._ask(client, title, hints)
+            ok, found = await self._ask(client, title, hints, terms)
             # 只缓存「查到」和「确实没有」，网络故障不写进缓存
             if ok:
                 self._found[title] = found
@@ -202,6 +227,7 @@ class MusicLibrary:
         client: httpx.AsyncClient,
         title: str,
         hints: Sequence[str] = ("シャイニーカラーズ",),
+        terms: Sequence[str] = (),
     ) -> tuple[bool, dict[str, Any] | None]:
         """问一次网易云：`(问成了吗, 查到的那首或 None)`。没问成时不要缓存。
 
@@ -211,13 +237,15 @@ class MusicLibrary:
         # 一条候选都没搜到，多半是被网易云限流了（同一关键词连着问会被掐），
         # 这种不写进缓存——下次再问一次，别把「限流」记成「没有这首」。
         saw_any = False
-        for keyword in _keywords(title):
+        for keyword in _keywords(title, terms):
             ok, found, had_candidates = await self._search(client, keyword, title, hints)
             if not ok:
                 return False, None
             saw_any = saw_any or had_candidates
             if found is not None:
                 return True, found
+        if found := await self._from_programs(client, title):
+            return True, found
         return (True, None) if saw_any else (False, None)
 
     async def _search(
@@ -274,6 +302,55 @@ class MusicLibrary:
             "duration": best.get("dt", best.get("duration")),
         }, True
 
+    async def _from_programs(self, client: httpx.AsyncClient, title: str) -> dict[str, Any] | None:
+        """单曲搜不到时，去电台节目里找同名的那一期（节目音频也有 mainTrackId，能直接播）。"""
+        if not self._programs:
+            return None
+        wanted = _normalise(title)
+        if not wanted:
+            return None
+
+        for program_id in self._programs:
+            info = await self._program(client, program_id)
+            if info is None:
+                continue
+            name, track = info["name"], info["id"]
+            folded = _normalise(name)
+            if folded == wanted or wanted in folded or folded in wanted:
+                return {
+                    "id": track,
+                    "name": name,
+                    "artists": ["电台节目"],
+                    "album": None,
+                    "duration": None,
+                    "via": "dj",
+                }
+        return None
+
+    async def _program(self, client: httpx.AsyncClient, program_id: str) -> dict[str, Any] | None:
+        """一期节目的名字和它的 `mainTrackId`；查过的记下来，不再问。"""
+        key = f"dj:{program_id}"
+        cached = self._found.get(key)
+        if cached is not None:
+            return cached
+        try:
+            response = await client.get(
+                "https://music.163.com/api/dj/program/detail",
+                params={"id": program_id},
+                headers=HEADERS,
+                timeout=10.0,
+            )
+            program = (response.json() or {}).get("program") or {}
+        except (httpx.HTTPError, ValueError):
+            return None
+        name, track = program.get("name"), program.get("mainTrackId")
+        if not name or not track:
+            return None
+        found = {"name": str(name), "id": str(track)}
+        self._found[key] = found
+        await asyncio.to_thread(self._save_cache)
+        return found
+
     def _load_cache(self) -> None:
         try:
             self._found = json.loads(self._path.read_text(encoding="utf-8"))
@@ -290,6 +367,20 @@ class MusicLibrary:
             log.warning("歌曲缓存写不进去：%r", error)
 
 
+def _read_program_ids() -> list[str]:
+    """一行一个 id，`#` 开头的跳过。"""
+    try:
+        text = dj_programs_path().read_text(encoding="utf-8")
+    except OSError:
+        return []
+    ids: list[str] = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped and not stripped.startswith("#"):
+            ids.append(stripped)
+    return ids
+
+
 def _normalise(text: str) -> str:
     """比曲名时把空白、标点抹平：`Spread the Wings!!` 与 `Spread the Wings` 算同一首。"""
     return "".join(ch for ch in text.lower() if ch.isalnum())
@@ -299,16 +390,21 @@ _VERSION_SUFFIX = re.compile(r"^(.*?)[（(]([^）)]*)[）)]\s*$")
 """`FELICE（櫻木真乃Ver.）` 这种：括号里是版本说明，不是曲名的一部分。"""
 
 
-def _keywords(title: str) -> list[str]:
-    """先用曲名原样搜；不中时去掉括号里的版本说明再搜一次。
+def _keywords(title: str, terms: Sequence[str] = ()) -> list[str]:
+    """怎么搜这一首：曲名原样 → 去掉括号里的版本说明 → 再带上歌手 / 组合名。
 
     网易云对带全角括号的长串检索很差（`FELICE（櫻木真乃Ver.）` 搜出来是一堆别的歌），
-    去掉之后 `FELICE` 反而能搜到。
+    去掉括号再搜能中；而 `Sparkle` 这种常见词，单搜会被别人的同名歌淹掉，
+    带上组合名（`Sparkle イルミネーションスターズ`）才排在前面。
     """
-    keywords = [title]
     match = _VERSION_SUFFIX.match(title)
-    if match and match.group(1).strip():
-        keywords.append(match.group(1).strip())
+    bare = match.group(1).strip() if match and match.group(1).strip() else title
+    keywords = [title]
+    if bare != title:
+        keywords.append(bare)
+    for term in list(terms)[:3]:
+        if term and term not in keywords:
+            keywords.append(f"{bare} {term}")
     return keywords
 
 

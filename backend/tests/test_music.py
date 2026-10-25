@@ -161,6 +161,44 @@ class FakeNetease:
         return self._payload
 
 
+def test_a_common_title_is_searched_with_her_group(tmp_path):
+    """`Sparkle` 这种词单搜会被别人的同名歌淹掉，带上组合名才排得上来。"""
+    keywords = _keywords("Sparkle", ["イルミネーションスターズ"])
+    assert keywords[0] == "Sparkle"
+    assert "Sparkle イルミネーションスターズ" in keywords
+
+
+class DjClient:
+    """假 client：单曲搜不到，节目的详情里有。"""
+
+    status_code = 200
+
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    async def get(self, url: str, params: dict | None = None, **_: object) -> object:
+        self.calls.append(url)
+        if "program/detail" in url:
+            self._payload = {"program": {"name": "With you（大崎甘奈Ver.）", "mainTrackId": 2686388735}}
+        else:
+            self._payload = {"result": {"songs": []}}
+        return self
+
+    def json(self) -> dict:
+        return self._payload
+
+
+async def test_a_song_only_in_a_radio_program_is_found(tmp_path):
+    """没单独上架的歌常常只在电台节目里：「With you（大崎甘奈Ver.）」就是这样。"""
+    music = library(tmp_path)
+    music._programs = ["3074027043"]  # pyright: ignore[reportPrivateUsage]
+    client = DjClient()
+    found = await music.lookup(cast("httpx.AsyncClient", client), "With you（大崎甘奈Ver.）")
+    assert found is not None
+    assert found["id"] == "2686388735"
+    assert found["via"] == "dj"
+
+
 async def test_an_encrypted_result_is_not_taken_as_missing(tmp_path):
     """`search/get/web` 现在回 `{"result":"35b174…"}`：那是“没问到”，不能缓存成“没有这首”。"""
     music = library(tmp_path)
