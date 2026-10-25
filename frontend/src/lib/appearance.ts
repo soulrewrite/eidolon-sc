@@ -9,7 +9,11 @@ export type Appearance = {
   scspAvatars: boolean;
 };
 
-export const DEFAULT_APPEARANCE: Appearance = { scspAvatars: false };
+// 默认给聊天用 SCSP 那一套（歌曲页用的是原来的立绘）；关掉开关就换回立绘。
+// 2026-10-25 之前默认是关的，老设备存下的 `false` 用一次迁移改成 `true`。
+export const DEFAULT_APPEARANCE: Appearance = { scspAvatars: true };
+
+const MIGRATED_KEY = "eidolon.appearance.migrated";
 
 function storageKey(userId: string): string {
   return `eidolon.appearance.${userId}`;
@@ -18,8 +22,21 @@ function storageKey(userId: string): string {
 /** 这位用户在这台设备上的外观。 */
 export function loadAppearance(userId: string): Appearance {
   try {
-    const stored = JSON.parse(localStorage.getItem(storageKey(userId)) ?? "{}");
-    return { scspAvatars: stored?.scspAvatars === true };
+    const raw = localStorage.getItem(storageKey(userId));
+    if (raw === null) return DEFAULT_APPEARANCE;
+    const stored = JSON.parse(raw);
+    const scspAvatars = stored?.scspAvatars === true;
+    // 老设备存的是「关」，那会儿默认关；按新默认迁移一次，之后就听用户的
+    if (!scspAvatars && localStorage.getItem(MIGRATED_KEY) === null) {
+      try {
+        localStorage.setItem(MIGRATED_KEY, "1");
+        localStorage.setItem(storageKey(userId), JSON.stringify({ scspAvatars: true }));
+      } catch {
+        // 存不进去就算了，这次页面里按默认走
+      }
+      return DEFAULT_APPEARANCE;
+    }
+    return { scspAvatars };
   } catch {
     return DEFAULT_APPEARANCE;
   }

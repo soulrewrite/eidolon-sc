@@ -174,10 +174,10 @@ export function MusicPage() {
                   picked === character.id ? "bg-accent text-foreground" : "text-muted-foreground",
                 )}
               >
-                {character.scsp_avatar_url ?? character.avatar_url ? (
+                {character.avatar_url ?? character.scsp_avatar_url ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
-                    src={(character.scsp_avatar_url ?? character.avatar_url) as string}
+                    src={(character.avatar_url ?? character.scsp_avatar_url) as string}
                     alt=""
                     className="size-12 rounded-full border object-cover"
                     style={{ borderColor: character.color }}

@@ -23,17 +23,27 @@ const character = (id: string, scsp: boolean) =>
   }) as Character;
 
 describe("外观存在这台设备上、按用户分开", () => {
-  it("没存过时 SCSP 头像是关的", () => {
+  it("没存过时聊天用 SCSP 头像（歌曲页用的是另一套）", () => {
     storage();
     expect(loadAppearance("u1")).toEqual(DEFAULT_APPEARANCE);
-    expect(DEFAULT_APPEARANCE.scspAvatars).toBe(false);
+    expect(DEFAULT_APPEARANCE.scspAvatars).toBe(true);
+  });
+
+  it("老设备存下的「关」迁移一次成「开」，之后听用户的", () => {
+    const items = storage({ "eidolon.appearance.u1": '{"scspAvatars":false}' });
+    expect(loadAppearance("u1")).toEqual({ scspAvatars: true });
+    expect(items.get("eidolon.appearance.u1")).toBe('{"scspAvatars":true}');
+
+    // 用户之后自己关掉，就不该再被迁移拉回开
+    keepAppearance("u1", { scspAvatars: false });
+    expect(loadAppearance("u1")).toEqual({ scspAvatars: false });
   });
 
   it("存下的读得回来，别的用户读不到", () => {
     storage();
     keepAppearance("u1", { scspAvatars: true });
     expect(loadAppearance("u1")).toEqual({ scspAvatars: true });
-    expect(loadAppearance("u2")).toEqual({ scspAvatars: false });
+    expect(loadAppearance("u2")).toEqual(DEFAULT_APPEARANCE);
   });
 
   it("数据坏了当作默认", () => {
