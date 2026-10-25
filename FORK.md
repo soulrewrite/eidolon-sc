@@ -3,9 +3,10 @@
 > 《偶像大师 闪耀色彩》的 AI 分身：文字 + 语音通话，28 位偶像加一位事务员。
 > 非官方同人，AGPL-3.0-or-later。
 
-仓库 `soulrewrite/eidolon-sc`，是 [Sallyn0225/eidolon-sc](https://github.com/Sallyn0225/eidolon-sc)
-的 fork（上游不接 PR，所以单开一条线）。基线 `4b869539`，定向移植了上游的
-成就系统（`44a3657e`）和七草はづき（`7eb50984`），其余都是自己加的。
+仓库 [`soulrewrite/eidolon-sc-tsuzuku`](https://github.com/soulrewrite/eidolon-sc-tsuzuku)，
+是 [Sallyn0225/eidolon-sc](https://github.com/Sallyn0225/eidolon-sc) 的 fork（上游不接 PR，
+所以单开一条线）。基线 `4b869539`，定向移植了上游的成就系统（`44a3657e`）和
+七草はづき（`7eb50984`），其余都是自己加的。
 
 ## 加了什么
 
@@ -22,8 +23,7 @@
 
 ### 信：一张纸的两面
 
- <img src="docs/images/fork/letter.webp" width="620" alt="电脑上打开的信" /> 
-
+<img src="docs/images/fork/letter.webp" width="620" alt="电脑上打开的信" />
 
 亲近以上才会写，每人每天最多一封——否则几个亲近角色会像刷屏。普通信在 18:00–22:00
 之间抽一分钟送到，生日和每满 30 天当天就来。抬头和正文由她自己写：日文在原稿那页，
