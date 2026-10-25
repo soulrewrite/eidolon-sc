@@ -536,6 +536,18 @@ WANTS_TO_REACH_OUT = "（制作人这会儿没在和你说话。你想先给他�
 so every protocol takes the prompt, ending with the user, as narration does."""
 
 
+def _topic_waiting(line: str) -> str:
+    """(fork) The section telling her, as she reaches out, of the question of hers the user
+    has not answered: what it was, and that she may pick it back up as herself — ask again,
+    answer it herself, or let it go for now."""
+    return (
+        "# 还没等到回话\n"
+        f"你最后一句话说：\n「{line}」\n"
+        "他到现在还没回。接着说的时候可以再问一次，可以自己把话接下去"
+        "（自问自答也可以），也可以先说别的——按你的性子来，别把原话重复一遍。"
+    )
+
+
 def _since_last_turn(
     record: Sequence[Recorded],
     gift_catalog: Mapping[str, Gift],
@@ -861,17 +873,20 @@ class ConversationEngine:
             reply.without_cues(), affinity and affinity.shown(), ended and ended.shown(), rewarded
         )
 
-    async def reach_out(self, conversation: Conversation, llm: ChatLLM) -> list[Segment]:
+    async def reach_out(
+        self, conversation: Conversation, llm: ChatLLM, topic: str | None = None
+    ) -> list[Segment]:
         """What she says first in `conversation`, the user not talking to her (GLOSSARY.md
         「搭话」), on `llm`: its segments, as the model wrote them, delivery cues and all. Her
         prompt is laid out as a text turn's (ADR-0020), and opens as the next one's will, but
         for what changes from turn to turn: she is told what time it is and that they are not
         talking and when they last were, how she speaks in her tier, the memories she reaches
-        out with (`Memories.for_reaching_out`), and how to reach out; then, where the user's
-        words would be, the events and her reach-outs since the last turn and that she wants
-        to say something first. Nothing else is retrieved, no tool offered, nothing judged.
-        Raises EmptyReply if the model says nothing she could say, and whatever the model
-        raises."""
+        out with (`Memories.for_reaching_out`), and how to reach out — `topic` (fork) being
+        the question of hers the user has not answered, told her so that she may pick it
+        back up; then, where the user's words would be, the events and her reach-outs since
+        the last turn and that she wants to say something first. Nothing else is retrieved,
+        no tool offered, nothing judged. Raises EmptyReply if the model says nothing she
+        could say, and whatever the model raises."""
         character = self._characters[conversation.character_id]
         record = self._store.record(conversation.id)
         messages = [entry for entry in record if isinstance(entry, Message)]
@@ -901,6 +916,7 @@ class ConversationEngine:
                     affinity_prompt(affinity.tier, None) if affinity is not None else [],
                     self._store.last_contact(conversation.user_id, conversation.character_id),
                 ),
+                *([_topic_waiting(topic)] if topic else []),
             ],
             [*([memories] if memories else []), REACH_OUT_RULES],
             WANTS_TO_REACH_OUT, None,

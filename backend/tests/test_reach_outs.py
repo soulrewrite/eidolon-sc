@@ -193,6 +193,34 @@ async def test_the_closer_she_is_the_sooner_she_comes(
     assert (len(before), len(after)) == (0, 1)
 
 
+async def test_she_picks_her_unanswered_question_back_up_soon(
+    make_client: ClientFactory, settings: Settings
+):
+    """(fork) Her last word a question of hers the user has not answered, her first word
+    comes at the nudge — 45 minutes at the least, a sixth of her range at the most — not
+    her tier's range; and she is told what she asked, to pick it back up as herself."""
+    client, llm, clock, conversation = await talked(
+        make_client, ["<ja>ね、そっちは？</ja><zh>那你呢？</zh>"], REACH_OUT,
+        settings=replace(settings, judge=FAKE_JUDGE), random=FakeRandom(MIDDLE),
+    )
+    await send_turn(client, conversation, "我家的猫又捣乱了")
+    keep(settings.database_path, "producer", 90, clock.now)  # intimate: 3–6 hours, halfway
+    last_contact(settings.database_path, conversation, clock.now)  # a sixth: 45 minutes
+    reach_out = backend_of(client).reach_outs
+
+    clock.advance(minutes=44)
+    await reach_out.run_due()
+    before = reach_outs(await record(client, conversation))
+    clock.advance(minutes=2)
+    await reach_out.run_due()
+    after = reach_outs(await record(client, conversation))
+
+    assert (len(before), len(after)) == (0, 1)
+    told = context_of(llm.prompts[-1])
+    assert "还没等到回话" in told
+    assert "ね、そっちは？" in told
+
+
 async def test_where_affinity_is_off_she_comes_as_in_trust(
     make_client: ClientFactory, settings: Settings
 ):

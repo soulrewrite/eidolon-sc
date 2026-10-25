@@ -1056,6 +1056,12 @@ class Store:
         after = _at(latest.created_at) >= _at(last_turn_said)  # as `record` places it
         return latest if after else message
 
+    def last_of(self, conversation_id: str) -> Recorded | None:
+        """The last thing in the conversation's record, as `record` orders it (fork): the
+        reach-out scheduler looks at it to see whether her last word still waits for an
+        answer."""
+        return self._last(conversation_id)
+
     def add_turn(
         self,
         conversation_id: str,

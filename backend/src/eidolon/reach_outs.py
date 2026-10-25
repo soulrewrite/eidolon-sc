@@ -35,6 +35,7 @@ looked at again as it is recorded (`Store.add_reach_out`), is not recorded, refu
 
 import asyncio
 import logging
+import re
 import threading
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
@@ -51,7 +52,14 @@ from eidolon.engine import ConversationEngine
 from eidolon.live_config import LiveConfig
 from eidolon.producer import effective_timezone, is_birthday
 from eidolon.randomness import Random
-from eidolon.store import Conversation, CurrentConversation, ReachOutRefused, Store
+from eidolon.store import (
+    Conversation,
+    CurrentConversation,
+    Message,
+    ReachOut,
+    ReachOutRefused,
+    Store,
+)
 from eidolon.usage import UsageLimiter
 
 log = logging.getLogger(__name__)
@@ -80,6 +88,22 @@ FOLLOW_UP = 6
 """How much sooner each word into a silence comes than the first: a sixth of `INTERVALS`,
 a sixth of her tier's range apart, so that a second word comes while the user may still be
 there rather than a whole day later."""
+
+# fork：话题延续（PLAN-20261025 A）。她的回复或搭话以问句结尾、用户一直没回时，下一次
+# 开口不等整个档位间隔，提前到间隔的六分之一（同 FOLLOW_UP 的比例），但至少隔 NUDGE_FLOOR，
+# 免得刚问完紧接着又催。夜里安静、每日上限、沉默句数上限照常管着它。
+NUDGE_FLOOR = timedelta(minutes=45)
+"""How soon at the least she picks an unanswered question of hers back up."""
+
+NUDGE_WITHIN = timedelta(hours=12)
+"""How long after she asked her question still gets picked back up. One older than that
+does not — the evening letter or her usual reach-out takes over instead, and a question
+from before the backend started is not made up for on startup (as no time is)."""
+
+_OPENING_CUE = re.compile(r"^\[[^]]+\]\s*")
+"""The delivery cue a line of hers may open with, [softly] and the like."""
+_ASKS = re.compile(r"[？?]$|(かい?|かな|かしら|かなぁ)$")
+"""Whether her closing words ask: a question mark, or か・かい・かな・かしら without one."""
 
 PLACES = 1000
 """How many places in a tier's range her time may be drawn at, evenly apart; and in the
@@ -117,13 +141,15 @@ class ReachOutsOff(Exception):
 @dataclass(frozen=True)
 class _Due:
     """A conversation whose time has come, for the last contact in it: her tier, her time,
-    and the producer's time zone."""
+    the producer's time zone, and what she asked that still waits for an answer, if her
+    last word does (fork: 话题延续)."""
 
     conversation: Conversation
     contact: datetime
     tier: Tier
     at: datetime
     zone: ZoneInfo
+    topic: str | None = None
 
 
 class ReachOuts:
@@ -254,8 +280,16 @@ class ReachOuts:
         if into_silence >= SILENCE[tier]:
             return None
         place, morning, due = self._schedule(conversation.id, contact)
+        topic: str | None = None
         if into_silence == 0:
-            if due is None:  # no time put off for it: her tier's range, at its place
+            # fork：她最后一句话是个还没过夜的问句时，开口提前——见 NUDGE_FLOOR。
+            if now - contact <= NUDGE_WITHIN and (
+                topic := self._open_topic(conversation.id)
+            ) is not None:
+                due = max(
+                    contact + NUDGE_FLOOR, contact + self._interval(tier, place) / FOLLOW_UP
+                )
+            elif due is None:  # no time put off for it: her tier's range, at its place
                 due = contact + self._interval(tier, place)
         else:
             # Another word into a silence: sooner than the first, from when she last said
@@ -285,7 +319,22 @@ class ReachOuts:
         if due < self._started:  # missed, the backend not running
             self._put_off(conversation.id, contact, now + self._interval(tier))
             return None
-        return _Due(conversation, contact, tier, due, zone)
+        return _Due(conversation, contact, tier, due, zone, topic)
+
+    def _open_topic(self, conversation_id: str) -> str | None:
+        """What she asked that still waits for an answer (fork): her closing words as she
+        last said anything in the conversation — a reply of hers or a reach-out, the user
+        having said nothing since — asking a question. None when the last thing is the
+        user's, an event's, or hers but not asking."""
+        last = self._store.last_of(conversation_id)
+        if isinstance(last, ReachOut):
+            ja = last.segments[-1].ja if last.segments else last.ja
+        elif isinstance(last, Message) and last.role == "character":
+            ja = last.segments[-1].ja if last.segments else last.ja
+        else:
+            return None
+        line = _OPENING_CUE.sub("", (ja or "").strip().splitlines()[-1].strip()) if ja else ""
+        return line[:120] if _ASKS.search(line) else None
 
     def _count_since(
         self, conversation_id: str, contact: datetime, reached_out_at: datetime | None
@@ -406,7 +455,9 @@ class ReachOuts:
         lease = self._config.lease()
         try:
             with recording.current():
-                said = await self._engine.reach_out(conversation, lease.keys.chat_llm)
+                said = await self._engine.reach_out(
+                    conversation, lease.keys.chat_llm, topic=due.topic
+                )
         except Exception as e:
             # Not logged with what was raised: a service's error may repeat what it was asked.
             log.warning("reaching out in conversation %s failed: %s", conversation.id,
