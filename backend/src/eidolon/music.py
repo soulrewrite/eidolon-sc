@@ -417,6 +417,9 @@ _VERSION_SUFFIX = re.compile(r"^(.*?)[（(]([^）)]*)[）)]\s*$")
 _NOT_A_PERFORMANCE = re.compile(r"(off\s*vocal|instrumental|inst\.|カラオケ|伴奏)", re.IGNORECASE)
 """伴奏版不是这首歌：`Spread the Wings!! (Off Vocal)` 放出来是没人唱的。"""
 
+_PARENS = re.compile(r"[（(][^）)]*[）)]")
+"""括号里的那截：`Migratory Echoes (アルストロメリア Ver.)` 的括号说的是「谁唱的」，不是歌名。"""
+
 _TRUSTED_ALBUM = re.compile(r"(shiny\s*colors|シャイニーカラーズ|\b28\s*colors\b)", re.IGNORECASE)
 """这些碟名里带企划名的，基本可以认定是企划自己的录音（多人的群唱尤其常挂在整企划名下）。"""
 
@@ -505,6 +508,12 @@ def _best_match(
             rank = 3 if (not _VER_SINGER.search(title) and _VER_SINGER.search(str(song.get("name") or ""))) else 2
         else:
             continue
+        if not _VER_SINGER.search(title):
+            # 我们要的是原版：曲名如果只在候选的括号里出现，那是另一首歌
+            # （`アルストロメリア` vs `Migratory Echoes (アルストロメリア Ver.)`）
+            outside = _normalise(_PARENS.sub("", str(song.get("name") or "")))
+            if wanted not in outside:
+                continue
         if _NOT_A_PERFORMANCE.search(str(song.get("name") or "")):
             continue
         if _NOT_A_PERFORMANCE.search(str(song.get("name") or "")):
