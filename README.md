@@ -1,7 +1,7 @@
 > [!IMPORTANT]
 > **这是 [Sallyn0225/eidolon-sc](https://github.com/Sallyn0225/eidolon-sc) 的一个 fork：续・闪耀色彩（`eidolon-sc-tsuzuku`）。**
 > 玩法上的改动都在 [FORK.md](FORK.md)：消息语音、晚上写信、跨对话记忆、更主动的搭话、调整好感度系统。
-> 打算登记进[社区玩法仓库](https://github.com/Sallyn0225/eidolon-sc/blob/main/docs/community-forks.md)（还没开 issue），
+> 登记进[社区玩法仓库](https://github.com/Sallyn0225/eidolon-sc/blob/main/docs/community-forks.md)。
 > 由作者自己维护，上游没有审过也不担保。剧情库、音色、立绘素材不随仓库分发（[ADR-0003](docs/adr/0003-corpus-and-voices-stay-private.md)），要自己准备。
 >
 > 关于歌曲页面，都取至网易云，个人ver多失效，就当仓库了。
