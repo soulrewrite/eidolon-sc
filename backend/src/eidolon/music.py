@@ -288,7 +288,13 @@ class MusicLibrary:
             log.warning("网易云给的是加密结果（%s），换接口或等它恢复", keyword)
             return False, None, False
         songs = result.get("songs") or []
-        best = _best_match(title, songs, hints, must)
+        best = _best_match(title, songs, hints)
+        if best is not None and must:
+            # 点名的版本（`With you（大崎甘奈Ver.）`）如果只挑到基础版，就收紧一次：
+            # 对不上那位宁可不要，也别把组合版当成独唱版。
+            # 但只在「挑中的正好是基础版」时收紧——不然会把一堆本来能对上的版本曲筛掉。
+            if _normalise(str(best.get("name") or "")) == _normalise(_bare_title(title)):
+                best = _best_match(title, songs, hints, must)
         if best is None:
             return True, None, bool(songs)
         # 网易云这两处不总是同一个形状：`album` 有时是对象、有时就是碟名，
@@ -406,6 +412,12 @@ def _version_singer(title: str) -> str | None:
     name = match.group(1).strip()
     # 只认人：`(2023 Ver.)` 这种是年份，不是谁唱的
     return name if name and not name.isdigit() else None
+
+
+def _bare_title(title: str) -> str:
+    """去掉「（某某Ver.）」之后的曲名。"""
+    match = _VERSION_SUFFIX.match(title)
+    return match.group(1).strip() if match and match.group(1).strip() else title
 
 
 def _keywords(title: str, terms: Sequence[str] = ()) -> list[str]:
