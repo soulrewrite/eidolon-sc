@@ -558,6 +558,9 @@ def create_app(backend: Backend) -> FastAPI:
 
         # 先把这一首试一遍，不行再试同一首歌在别的碟上的版本
         # （`Spread the Wings!!` 那张碟网易云没版权，2023 Ver. 有）
+        # 备选来自缓存：这一页没查过这首歌就先查一次，再取
+        if title and not songs.alternatives(title):
+            await songs.lookup(client, title)
         tried = [id, *(songs.alternatives(title) if title else [])]
         upstream = None
         try:
