@@ -781,8 +781,10 @@ class ConversationEngine:
         # fork（情侣）：只有亲密到头、还没在一起时的告白才要她答；答了才成。判断模型
         # 只看出这是告白，答不答应是她本人拿主意——问的是扮演她的这台模型。
         confession = None
+        affinities = self._affinities
         if (
-            judged is not None and judged.confess and coupled is None
+            affinities is not None
+            and judged is not None and judged.confess and coupled is None
             and affinity is not None and not affinity.cooling
             and affinity.tier == "intimate" and affinity.value >= COUPLE_AT
         ):
@@ -790,7 +792,7 @@ class ConversationEngine:
                 conversation, character, text, judged_history, llms.chat
             )
             if confession == "accepted":
-                coupled = self._affinities.become_couple(
+                coupled = affinities.become_couple(
                     conversation.user_id, conversation.character_id
                 )
         cools = self._cools(conversation, judged)
