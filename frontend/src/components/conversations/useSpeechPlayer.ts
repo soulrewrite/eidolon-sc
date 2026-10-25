@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { speechUrl, respeak, type SpeechRef } from "@/lib/messageSpeech";
+import { musicPlayback } from "@/lib/musicPlayer";
 
 /** 一句话在这台页面上的处境：没在放、正在问地址或合成（`asking`）、在放、这次没放出来（`failed`）。 */
 export type SpeechPlay = {
@@ -79,6 +80,8 @@ export function useSpeechPlayer(): SpeechPlay {
     }
     element.currentTime = 0;
     element.onended = () => setPlaying((now) => (now === key ? null : now));
+    // 她开口说话就把歌曲停下：两个声音叠在一起听不清
+    musicPlayback.stop();
     await element.play();
     setPlaying(key);
   }, []);

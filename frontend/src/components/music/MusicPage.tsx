@@ -3,7 +3,7 @@
 // 歌曲页（fork）：上面一排她的头像，点一位就只看她唱过的歌；切到「专辑」按发售日看碟。
 // 播放靠网易云的外链播放器，点一首才去查它在网易云是哪一首（查到就记住，不再问）。
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
@@ -13,12 +13,11 @@ import {
   musicAlbums,
   musicLookup,
   musicSongs,
-  songPageUrl,
-  streamUrl,
   type Album,
   type FoundSong,
   type Song,
 } from "@/lib/music";
+import { musicPlayback } from "@/lib/musicPlayer";
 import { cn } from "@/lib/utils";
 import { AlbumIcon, MusicIcon, PlayIcon } from "@/theme/icons";
 
@@ -33,11 +32,13 @@ export function MusicPage() {
   const [albums, setAlbums] = useState<Album[] | null>(null);
   const [tab, setTab] = useState<Tab>("songs");
   const [picked, setPicked] = useState<string | null>(null);
-  const [playing, setPlaying] = useState<string | null>(null);
+  /** 点了但没查到的那一条：展开告诉用户「网易云没有这首」。 */
+  const [nowPlaying, setNowPlaying] = useState<string | null>(null);
+  // 在放哪一首由外壳的播放器说了算：离开这一页它还在放
+  const now = useSyncExternalStore(musicPlayback.subscribe, musicPlayback.get, () => null);
   const [found, setFound] = useState<Record<string, FoundSong | null>>({});
   const [searching, setSearching] = useState<string | null>(null);
   const [openAlbum, setOpenAlbum] = useState<string | null>(null);
-  const [unplayable, setUnplayable] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     let alive = true;
@@ -86,20 +87,27 @@ export function MusicPage() {
     })();
   }, [tab, albums]);
 
+  /** 点一首：先查它在网易云是哪一首，再交给外壳的播放器（切页面也不停）。 */
   async function play(title: string) {
-    if (playing === title) {
-      setPlaying(null);
+    if (now?.title === title) {
+      musicPlayback.stop();
       return;
     }
-    setPlaying(title);
-    if (title in found) return;
-    setSearching(title);
-    try {
-      const hit = await musicLookup(title);
-      setFound((before) => ({ ...before, [title]: hit }));
-    } finally {
-      setSearching(null);
+    let hit = found[title];
+    if (hit === undefined) {
+      setSearching(title);
+      try {
+        hit = await musicLookup(title);
+        setFound((before) => ({ ...before, [title]: hit }));
+      } finally {
+        setSearching(null);
+      }
     }
+    if (hit === null) {
+      setNowPlaying(title);   // 没查到：展开那句「没有这首」
+      return;
+    }
+    musicPlayback.play(title, hit.id);
   }
 
   const current = picked === null ? null : withSongs.find((character) => character.id === picked) ?? null;
@@ -190,8 +198,8 @@ export function MusicPage() {
                     <div className="flex items-center gap-3">
                       <Button
                         size="icon-sm"
-                        variant={playing === song.title ? "secondary" : "ghost"}
-                        aria-label={playing === song.title ? t.stop : t.play(song.title)}
+                        variant={now?.title === song.title ? "secondary" : "ghost"}
+                        aria-label={now?.title === song.title ? t.stop : t.play(song.title)}
                         onClick={() => void play(song.title)}
                       >
                         <PlayIcon />
@@ -204,35 +212,14 @@ export function MusicPage() {
                         </p>
                       </div>
                     </div>
-                    {playing === song.title && (
+                    {(now?.title === song.title || nowPlaying === song.title) && (
                       <div className="mt-2">
                         {searching === song.title ? (
                           <p className="text-meta text-muted-foreground">{t.searching}</p>
                         ) : found[song.title] ? (
-                          <div className="space-y-1">
-                            {/* 网易云那条外链是 http，页面上直接引用会被浏览器拦；
-                                后端转一手成同源 https，进度条靠 Range 透传 */}
-                            {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
-                            <audio
-                              controls
-                              autoPlay
-                              preload="none"
-                              src={streamUrl((found[song.title] as FoundSong).id)}
-                              className="w-full"
-                              onError={() => setUnplayable((before) => ({ ...before, [song.title]: true }))}
-                            />
-                            {unplayable[song.title] && (
-                              <p className="text-meta text-muted-foreground">{t.cannotPlay}</p>
-                            )}
-                            <a
-                              className="text-meta text-muted-foreground underline"
-                              href={songPageUrl((found[song.title] as FoundSong).id)}
-                              target="_blank"
-                              rel="noreferrer"
-                            >
-                              {t.openInNetease}
-                            </a>
-                          </div>
+                          <p className="mt-1 ms-12 text-meta text-muted-foreground">
+                            {now?.title === song.title ? t.playingHint : t.tapToPlay}
+                          </p>
                         ) : (
                           <p className="text-meta text-muted-foreground">{t.notOnNetease}</p>
                         )}
