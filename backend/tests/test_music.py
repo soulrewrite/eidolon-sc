@@ -169,6 +169,24 @@ def test_a_common_title_is_searched_with_her_group(tmp_path):
     assert "Sparkle イルミネーションスターズ" in keywords
 
 
+def test_an_off_vocal_is_not_the_song():
+    """`(Off Vocal)` 放出来是没人唱的，不能当这首歌。"""
+    songs = [
+        {"id": 1, "name": "Spread the Wings!! (Off Vocal)", "ar": [{"name": "シャイニーカラーズ"}]},
+        {"id": 2, "name": "Spread the Wings!!", "ar": [{"name": "シャイニーカラーズ"}]},
+    ]
+    assert (_best_match("Spread the Wings!!", songs) or {})["id"] == 2
+    assert _best_match("Karma", [{"id": 3, "name": "Karma (Off Vocal)", "ar": [{"name": "シャイニーカラーズ"}]}]) is None
+
+
+def test_a_song_named_after_the_unit_is_not_that_unit_song():
+    """`アルストロメリア` 不能匹配到 `Migratory Echoes (アルストロメリア Ver.)`——那是另一首。"""
+    songs = [
+        {"id": 1, "name": "Migratory Echoes (アルストロメリア Ver.)", "ar": [{"name": "アルストロメリア"}]},
+    ]
+    assert _best_match("アルストロメリア", songs) is None
+
+
 def test_the_original_wins_over_a_solo_version():
     """曲名没点名，候选里既有原版也有「（某某Ver.N）」，要挑原版。"""
     songs = [
