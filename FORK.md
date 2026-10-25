@@ -21,7 +21,7 @@
 
 ### 信：一张纸的两面
 
-<img src="docs/images/fork/letter-phone.webp" width="300" alt="手机上打开的信"<img src="docs/images/fork/letter.webp" width="620" alt="电脑上打开的信" /> 
+<img src="docs/images/fork/letter-phone.webp" width="300" alt="手机上打开的信"/> <img src="docs/images/fork/letter.webp" width="620" alt="电脑上打开的信" /> 
 
 
 亲近以上才会写，每人每天最多一封——否则几个亲近角色会像刷屏。普通信在 18:00–22:00
