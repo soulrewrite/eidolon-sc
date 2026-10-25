@@ -169,6 +169,15 @@ def test_a_common_title_is_searched_with_her_group(tmp_path):
     assert "Sparkle イルミネーションスターズ" in keywords
 
 
+def test_the_original_wins_over_a_solo_version():
+    """曲名没点名，候选里既有原版也有「（某某Ver.N）」，要挑原版。"""
+    songs = [
+        {"id": 1, "name": "SNOW FLAKES MEMORIES（杜野凛世ver.）", "ar": [{"name": "丸岡和佳奈"}]},
+        {"id": 2, "name": "SNOW FLAKES MEMORIES", "ar": [{"name": "シャイニーカラーズ"}]},
+    ]
+    assert (_best_match("SNOW FLAKES MEMORIES", songs) or {})["id"] == 2
+
+
 def test_a_version_suffix_names_who_sings_it():
     assert _version_singer("With you（大崎甘奈Ver.）") == "大崎甘奈"
     assert _version_singer("FELICE（櫻木真乃Ver.）") == "櫻木真乃"

@@ -471,7 +471,8 @@ def _best_match(
         if name == wanted:
             rank = 0
         elif wanted in name or name in wanted:
-            rank = 1
+            # 我们要的是原版，候选却带「（某某Ver.）」：排在后面，让真正的原版先被挑中
+            rank = 2 if (not _VER_SINGER.search(title) and _VER_SINGER.search(str(song.get("name") or ""))) else 1
         else:
             continue
         if wanted_must:
