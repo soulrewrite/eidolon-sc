@@ -33,6 +33,9 @@ export function MusicPlayer() {
     if (call !== null) musicPlayback.stop();
   }, [call]);
 
+  // 只在「换了一首」或「这条废了」时动 src。
+  // 别把整个 playing 放进依赖：进度每秒 tick 一次就是个新对象，
+  // 那样每秒重设一次 src，上一请求被 abort、play() 直接 reject，歌刚响起就被自己停掉。
   useEffect(() => {
     const element = audio.current;
     if (!element) return;
@@ -46,7 +49,8 @@ export function MusicPlayer() {
     element.src = streamUrl(playing.neteaseId);
     // 自动播放可能被浏览器拦（没点过页面），拦了就照实停掉，不留一个空转的状态
     void element.play().catch(() => musicPlayback.stop());
-  }, [playing?.neteaseId, playing?.unplayable, playing]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playing?.neteaseId, playing?.unplayable]);
 
   if (playing === null) return null;
 
