@@ -624,15 +624,23 @@ def create_app(backend: Backend) -> FastAPI:
     @app.get("/api/characters/{character_id}/affinity")
     def affinity(character_id: str, user_id: UserId) -> dict | None:
         """Her affinity with the user now, by tier only, when the cooldown ends if she is
-        in one, and since when they are a couple (fork); null while affinity is off."""
+        in one, and — while they are lovers and still in the top tier (fork) — since when,
+        and what that stage is called; null while affinity is off."""
         if character_id not in characters:
             raise HTTPException(404, "角色不存在")
         status = backend.affinities.status(user_id, character_id)
         if status is None:
             return None
         since = backend.affinities.couple_since(user_id, character_id)
-        shown = status.shown()
-        return shown | {"couple_since": since.isoformat()} if since else shown
+        if since is None or status.tier != "intimate":
+            return status.shown()
+        # fork（情侣）：只有已经是恋人的那位才看得到这个档名，所以由这里给，不写在前端——
+        # 还没走到这一步的人，前端包里也就没有这两个字。吵到掉出亲密档时，照实显示那一档。
+        return status.shown() | {
+            "couple_since": since.isoformat(),
+            "tier_label": "恋人",
+            "tier_note": "你们是恋人：她会更直接地说想念，也更常主动找你。",
+        }
 
     @app.get("/api/memories")
     async def list_memories(user_id: UserId) -> list[dict]:

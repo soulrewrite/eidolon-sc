@@ -20,6 +20,30 @@ describe("badgeOf：页首标识显示什么、读屏读什么", () => {
       heart: "half",
       text: "亲近",
       label: "你们的关系：亲近",
+      note: "她比平时更放松，更愿意和你说心里话。",
+    });
+  });
+
+  it("她给了这一段的名字和说明就用她的（恋人），没给就是档位自己的", () => {
+    const couple = badgeOf(
+      {
+        tier: "intimate",
+        cooldown_until: null,
+        tier_label: "恋人",
+        tier_note: "你们是恋人。",
+        couple_since: "2026-10-25T13:00:00+09:00",
+      },
+      "凛世",
+      now,
+      zone,
+    );
+    expect(couple).toEqual({
+      kind: "tier",
+      tier: "intimate",
+      heart: "filled",
+      text: "恋人",
+      label: "你们的关系：恋人",
+      note: "你们是恋人。",
     });
   });
 

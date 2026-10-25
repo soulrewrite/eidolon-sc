@@ -61,11 +61,14 @@ export function AffinityBadge({
       <PopoverContent container={subtree} align="end">
         <div className="flex flex-col gap-0.5">
           <p className="font-medium">{cooling ? t.cooling(name) : t.title(badge.text)}</p>
-          <p className="text-muted-foreground">{cooling ? t.coolingNote(badge.text) : t.notes[badge.tier]}</p>
+          <p className="text-muted-foreground">{cooling ? t.coolingNote(badge.text) : badge.note}</p>
         </div>
         <ol className="flex gap-1" aria-label={t.tiersLabel}>
           {TIERS.map((tier) => {
             const current = !cooling && tier === badge.tier;
+            // 她给的这一段如果有名字（恋人），最后一格就写那个名字：读的人自己看得懂，
+            // 还没走到这一段的人，前端里根本没有这两个字。
+            const label = current ? badge.text : t.tiers[tier];
             return (
               <li
                 key={tier}
@@ -75,7 +78,7 @@ export function AffinityBadge({
                   current ? "bg-foreground text-background" : "bg-muted text-muted-foreground",
                 )}
               >
-                {t.tiers[tier]}
+                {label}
               </li>
             );
           })}

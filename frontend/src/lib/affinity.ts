@@ -9,8 +9,17 @@ export const TIERS = ["cold", "distant", "trust", "close", "intimate"] as const;
 /** 冷淡、疏远、信任、亲近、亲密，从低到高。 */
 export type Tier = (typeof TIERS)[number];
 
-/** 读状态接口给的：档位，冷却中的解除时刻（ISO，不在冷却是 null）。 */
-export type AffinityStatus = { tier: Tier; cooldown_until: string | null };
+/**
+ * 读状态接口给的：档位，冷却中的解除时刻（ISO，不在冷却是 null）。已经是恋人的那位，
+ * 接口还会带上 `tier_label`（这一段的名字）和 `couple_since`；别人没有这两个字段。
+ */
+export type AffinityStatus = {
+  tier: Tier;
+  cooldown_until: string | null;
+  tier_label?: string;
+  tier_note?: string;
+  couple_since?: string;
+};
 
 /** 一次变化：升还是降、变化后的档位、有没有跨档、是不是因此进了冷却，或者（只有送礼会）解除了冷却。不带原因和变化量。 */
 export type AffinityChange = { up: boolean; tier_changed: boolean; tier: Tier; cooldown: boolean; thawed: boolean };
@@ -40,9 +49,12 @@ export function heartOf(tier: Tier): Heart {
   return HEARTS[tier];
 }
 
-/** 页首标识：一档的心形加档名，或者冷却中的沙漏加解除时刻；`label` 是读屏读的名字。 */
+/**
+ * 页首标识：一档的心形加档名，或者冷却中的沙漏加解除时刻；`label` 是读屏读的名字，
+ * `note` 是点开说明时档名下面那句话。
+ */
 export type Badge =
-  | { kind: "tier"; tier: Tier; heart: Heart; text: string; label: string }
+  | { kind: "tier"; tier: Tier; heart: Heart; text: string; label: string; note: string }
   | { kind: "cooldown"; text: string; label: string };
 
 export function badgeOf(status: AffinityStatus, name: string, now: Date, timeZone: string): Badge {
@@ -51,8 +63,11 @@ export function badgeOf(status: AffinityStatus, name: string, now: Date, timeZon
     const until = untilText(new Date(status.cooldown_until), now, timeZone);
     return { kind: "cooldown", text: until, label: t.cooling(name) };
   }
-  const text = t.tiers[status.tier];
-  return { kind: "tier", tier: status.tier, heart: heartOf(status.tier), text, label: t.label(text) };
+  const text = status.tier_label ?? t.tiers[status.tier];
+  const note = status.tier_note ?? t.notes[status.tier];
+  return {
+    kind: "tier", tier: status.tier, heart: heartOf(status.tier), text, label: t.label(text), note,
+  };
 }
 
 /** 解除时刻按制作人的时区写成「今天 HH:MM」或「明天 HH:MM」（冷却最长 24 小时，不会更远）。 */
