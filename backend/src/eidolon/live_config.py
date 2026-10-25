@@ -1578,6 +1578,7 @@ class LiveRetrievalJudge:
         text: str,
         affinity: bool = False,
         photo: bool = False,
+        couple: bool = False,
     ) -> tuple[Need, Judged | None, bool]:
         lease = self._judge.lease()
         try:
@@ -1586,7 +1587,7 @@ class LiveRetrievalJudge:
                 self._activity,
                 judge_origin(lease.settings),
             )
-            return await judge.judge(character, history, text, affinity, photo)
+            return await judge.judge(character, history, text, affinity, photo, couple)
         finally:
             lease.release()
 
@@ -1613,6 +1614,7 @@ class LiveAffinityJudge:
         text: str,
         affinity: bool = True,
         photo: bool = False,
+        couple: bool = False,
     ) -> tuple[Judged | None, bool]:
         lease = self._judge.lease()
         try:
@@ -1621,7 +1623,7 @@ class LiveAffinityJudge:
                 self._activity,
                 judge_origin(lease.settings),
             )
-            return await judge.judge(character, history, text, affinity, photo)
+            return await judge.judge(character, history, text, affinity, photo, couple)
         finally:
             lease.release()
 

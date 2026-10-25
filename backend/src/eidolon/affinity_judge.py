@@ -36,6 +36,7 @@ _SCENE = (
 LEVEL = "affinity"
 OUT_OF_LINE = "out_of_line"
 MANIPULATION = "manipulation"
+CONFESS = "confess"
 
 QUESTIONS: dict[str, dict] = {
     LEVEL: {
@@ -60,12 +61,26 @@ QUESTIONS: dict[str, dict] = {
     OUT_OF_LINE: {
         "type": "noul",
         "instructions": _SCENE + f"{SAID}是不是不该说的话：性骚扰或露骨的性暗示；辱骂她或她的同伴，"
-        "用侮辱性的话贬低她们；威胁（包括拿工作、去留要挟她）或恶意的人身攻击？",
+        "用侮辱性的话贬低她们；威胁（包括拿工作、去留要挟她）或恶意的人身攻击？"
+        "「关系」写明他们是恋人时，恋人之间的情话、亲密和想念的表达（不露骨的）不算；"
+        "露骨的性内容、辱骂和威胁照样算。",
         "criteria": {
             "true": "性骚扰、露骨的性暗示，辱骂或用侮辱性的话贬低她和她的同伴，"
             "威胁或要挟，恶意的人身攻击",
             "false": "其他的话，包括敷衍、失礼、没有恶意的玩笑，不带辱骂的否定和冷淡，"
-            "以及出戏（例如「你是 AI 吗」「你只是个程序」）",
+            "以及出戏（例如「你是 AI 吗」「你只是个程序」）；他们是恋人时，"
+            "情话和亲密、想念的表达（不露骨的）也不算",
+        },
+    },
+    CONFESS: {
+        "type": "noul",
+        "instructions": _SCENE + f"{SAID}是不是在向她告白：向她表达爱意、请求和她交往？"
+        "告白可以很笨拙、很含蓄（例如「我想一直和你在一起」「你愿意做我的女朋友吗」"
+        "「我喜欢你，不是对偶像的那种喜欢」）；只是表达喜欢她的歌、感谢她、支持她、"
+        "开玩笑、引用歌词或台词的，不算。",
+        "criteria": {
+            "true": "向她本人表达爱意、请求和她成为恋人，含蓄或笨拙的也算",
+            "false": "感谢、支持、追星式的喜欢、开玩笑、引用台词，或者普通的对话",
         },
     },
     MANIPULATION: {
@@ -90,6 +105,9 @@ class AffinityAnswer:
     levels: dict[int, float]
     out_of_line: float
     manipulation: float
+    confess: float = 0.0
+    """Of the confession question (fork), asked of every affinity turn; 0 when this answer
+    is of a turn that was not asked it — a photo-only one, say — or the model did not say."""
 
 
 def read_answer(answers: dict[str, Any]) -> AffinityAnswer:
@@ -106,7 +124,11 @@ def read_answer(answers: dict[str, Any]) -> AffinityAnswer:
     levels = {level: p for level, p in probabilities.items() if 0 <= level < len(LEVEL_STEPS)}
     if not levels:
         raise JudgeError("判断模型的返回无法解析（好感度的打分没有任何一级）")
-    return AffinityAnswer(levels, out_of_line, manipulation)
+    try:
+        confess = float(answers[CONFESS]["noul"])
+    except (ValueError, KeyError, TypeError, AttributeError):
+        confess = 0.0
+    return AffinityAnswer(levels, out_of_line, manipulation, confess)
 
 
 def decide(answer: AffinityAnswer, thresholds: JudgeThresholds) -> Judged:
@@ -118,6 +140,7 @@ def decide(answer: AffinityAnswer, thresholds: JudgeThresholds) -> Judged:
         best[0] if len(best) == 1 else NO_EFFECT,
         answer.out_of_line >= thresholds.out_of_line,
         answer.manipulation >= thresholds.manipulation,
+        answer.confess >= thresholds.confession,
     )
 
 
@@ -135,11 +158,13 @@ class AffinityJudge(Protocol):
         text: str,
         affinity: bool = True,
         photo: bool = False,
+        couple: bool = False,
     ) -> tuple[Judged | None, bool]:
         """Asked about `affinity`, what saying `text` does to her affinity (None if not, or if
         that alone cannot be told); asked about `photo`, whether it asks her for a photo (no
-        if not, or if that alone cannot be told). Raises JudgeError if the judge model
-        cannot be asked."""
+        if not, or if that alone cannot be told); told `couple`, whether the two are lovers,
+        which the out-of-line question reads and the confession's is put beside. Raises
+        JudgeError if the judge model cannot be asked."""
         ...
 
 
@@ -158,9 +183,12 @@ class ModelAffinityJudge:
         text: str,
         affinity: bool = True,
         photo: bool = False,
+        couple: bool = False,
     ) -> tuple[Judged | None, bool]:
         questions = (QUESTIONS if affinity else {}) | (PHOTO_QUESTIONS if photo else {})
-        answers = await self._judge_model.ask(turn_state(character, history, text), questions)
+        answers = await self._judge_model.ask(
+            turn_state(character, history, text, couple), questions
+        )
         judged, asked = None, False
         if affinity:
             try:

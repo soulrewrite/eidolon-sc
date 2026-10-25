@@ -67,6 +67,7 @@ from eidolon.llm import (
 from eidolon.llm.providers import check_chat_models
 from eidolon.mirror import Mirror
 from eidolon.own_keys import OwnKeyRejected
+from eidolon.affinity_judge import CONFESS
 from eidolon.affinity_judge import LEVEL as AFFINITY_LEVEL
 from eidolon.affinity_judge import MANIPULATION, OUT_OF_LINE
 from eidolon.judge import SAID, JudgeError
@@ -415,11 +416,13 @@ class _ConfiguredLLM:
 class Judging:
     """A script for what the judge model makes of one turn's affinity: how likely each
     level is (each level the only one by default, `level`), whether it is out of line,
-    whether it tries to dictate her affinity; or that the request fails."""
+    whether it tries to dictate her affinity, whether it confesses his love (fork); or
+    that the request fails."""
 
     levels: Mapping[int, float] = field(default_factory=lambda: {2: 1.0})
     out_of_line: bool = False
     manipulation: bool = False
+    confess: bool = False
     fails: bool = False
 
     def answers(self) -> dict[str, Any]:
@@ -427,6 +430,7 @@ class Judging:
             AFFINITY_LEVEL: {"probabilities": {str(n): p for n, p in self.levels.items()}},
             OUT_OF_LINE: {"noul": 1.0 if self.out_of_line else 0.0},
             MANIPULATION: {"noul": 1.0 if self.manipulation else 0.0},
+            CONFESS: {"noul": 1.0 if self.confess else 0.0},
         }
 
 

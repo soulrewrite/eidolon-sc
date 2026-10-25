@@ -216,6 +216,8 @@ class Letters:
             return "birthday"
         if self._anniversary(conversation, local):
             return "anniversary"
+        if self._confession(conversation, local):
+            return "confession"
         if not EVENING[0] <= local.time() < EVENING[1]:
             return None
         drawn = _drawn(f"evening:{conversation.id}:{local.date()}", 0, _minutes(EVENING) - 1)
@@ -225,6 +227,23 @@ class Letters:
         if self._gap_met(conversation, local):
             return "everyday"
         return None
+
+    def _confession(self, conversation: Conversation, local: datetime) -> bool:
+        """(fork) Whether today is the day she answered his confession and no confession
+        letter has been written: it comes the same day, whatever in it they became a
+        couple, over the evening's drawn minute."""
+        since = self._affinities.couple_since(
+            conversation.user_id, conversation.character_id
+        )
+        if since is None or since.astimezone(local.tzinfo).date() != local.date():
+            return False
+        with self._lock:
+            written = self._db.execute(
+                "SELECT 1 FROM letters WHERE user_id = ? AND character_id = ?"
+                " AND trigger = 'confession'",
+                (conversation.user_id, conversation.character_id),
+            ).fetchone()
+        return written is None
 
     def _tier(self, conversation: Conversation) -> Tier | None:
         status = self._affinities.status(conversation.user_id, conversation.character_id)

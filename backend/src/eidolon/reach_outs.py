@@ -80,6 +80,12 @@ in the tiers not here."""
 
 # fork: 下面两个常量上游没有（上游是「搭过一次，用户不回就再也不说」）。见根目录 FORK.md。
 SILENCE: dict[Tier, int] = {"intimate": 3, "close": 2, "trust": 2}
+
+COUPLE_SOONER = 0.7
+"""(fork) How much of her tier's interval a couple's silence waits: she looks for him
+sooner, the way a lover does, without becoming a different person about it."""
+COUPLE_MORE = 1
+"""(fork) How many more words into a silence a couple's tier allows before she waits."""
 """How many things she may say into one silence — the user not answering — from her first
 reach-out on, by her tier: the closer, the more. One she must wait to be answered no more
 than that, so that reaching out never turns into talking to herself."""
@@ -277,7 +283,12 @@ class ReachOuts:
         # How many things she has said into this silence: none yet, or the user has answered
         # since the last one. Past what her tier allows, she waits to be answered.
         into_silence = self._count_since(conversation.id, contact, current.reached_out_at)
-        if into_silence >= SILENCE[tier]:
+        # fork（情侣）：恋人多接一句、早一点开口。
+        coupled = (
+            self._affinities.couple_since(conversation.user_id, conversation.character_id)
+            is not None
+        )
+        if into_silence >= SILENCE[tier] + (COUPLE_MORE if coupled else 0):
             return None
         place, morning, due = self._schedule(conversation.id, contact)
         topic: str | None = None
@@ -287,16 +298,16 @@ class ReachOuts:
                 topic := self._open_topic(conversation.id)
             ) is not None:
                 due = max(
-                    contact + NUDGE_FLOOR, contact + self._interval(tier, place) / FOLLOW_UP
+                    contact + NUDGE_FLOOR, contact + self._interval(tier, place, coupled) / FOLLOW_UP
                 )
             elif due is None:  # no time put off for it: her tier's range, at its place
-                due = contact + self._interval(tier, place)
+                due = contact + self._interval(tier, place, coupled)
         else:
             # Another word into a silence: sooner than the first, from when she last said
             # something, so that it comes while the user may still be there. Never the time
             # put off for the first, which may already have gone by.
             after = current.reached_out_at or contact
-            due = after + self._interval(tier, place) / FOLLOW_UP
+            due = after + self._interval(tier, place, coupled) / FOLLOW_UP
         # Her birthday is today and she has not said anything in it yet: this comes first,
         # whatever her tier's range says, so that the day is not missed by a few hours. The
         # night still comes first: said in the morning, not at three.
@@ -391,11 +402,14 @@ class ReachOuts:
             return None
         return status.tier
 
-    def _interval(self, tier: Tier, place: float | None = None) -> timedelta:
+    def _interval(
+        self, tier: Tier, place: float | None = None, couple: bool = False
+    ) -> timedelta:
         """How long after a contact she reaches out in `tier`, at `place` in its range, or at
-        one drawn."""
+        one drawn; `couple` (fork), sooner by `COUPLE_SOONER`."""
         low, high = self._intervals[tier]
-        return low + (high - low) * (self._draw() if place is None else place)
+        drawn = low + (high - low) * (self._draw() if place is None else place)
+        return drawn * COUPLE_SOONER if couple else drawn
 
     def _draw(self) -> float:
         return self._random(PLACES) / PLACES

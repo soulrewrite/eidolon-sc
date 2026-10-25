@@ -33,6 +33,7 @@ USER_DATA = [
     ("conversations", "user_id = ?"),
     ("producer_profiles", "user_id = ?"),
     ("affinities", "user_id = ?"),
+    ("couples", "user_id = ?"),
     ("gift_balances", "user_id = ?"),
     ("gift_backpacks", "user_id = ?"),
     ("gift_rewards", "user_id = ?"),

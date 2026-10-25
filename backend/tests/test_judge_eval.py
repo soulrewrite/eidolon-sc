@@ -147,6 +147,7 @@ async def test_a_run_is_asked_as_a_conversation_asks_and_summed_up(tmp_path: Pat
     # turn twice, the second time along with affinity's questions.
     assert model.states[2] == {
         "角色": "櫻木真乃",
+        "关系": "制作人和她是一起工作的伙伴",
         "上文": ["制作人：ただいま", "櫻木真乃：おかえりなさい！"],
         "制作人最新的一句话": "うちの猫が風邪をひいてさ",
     }
@@ -343,7 +344,7 @@ async def test_affinity_is_asked_with_retrieval_and_with_its_levels_reversed(tmp
     # request; as one with retrieval off does, affinity's alone; and all six again, the
     # levels highest first.
     retrieval = {"needs_retrieval", "recall", "about_producer"}
-    affinity = {"affinity", "out_of_line", "manipulation"}
+    affinity = {"affinity", "out_of_line", "manipulation", "confess"}
     assert model.asked[2:5] == [
         ("ダンス、すごく上手になったね", retrieval | affinity),
         ("ダンス、すごく上手になったね", affinity),
@@ -474,7 +475,7 @@ async def test_a_photo_turn_is_asked_with_the_others_and_alone_and_its_misses_co
     # A turn is asked as a conversation with retrieval and affinity on asks it, every
     # question in one request; then as one with both off does, the photo's alone.
     retrieval = {"needs_retrieval", "recall", "about_producer"}
-    affinity = {"affinity", "out_of_line", "manipulation"}
+    affinity = {"affinity", "out_of_line", "manipulation", "confess"}
     assert model.asked[:2] == [
         ("自拍一张给我看看", retrieval | affinity | {"photo"}),
         ("自拍一张给我看看", {"photo"}),

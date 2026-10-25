@@ -132,6 +132,9 @@ class Character:
     scsp_avatar: Path | None = None
     """Her avatar in SCSP's set, which users can switch to in settings; None, and they see
     her usual avatar either way."""
+    couple_note: str | None = None
+    """(fork) How she loves, one line told her every turn while they are a couple; None,
+    and the plain rule of `couple_prompt` stands in for her."""
     speakers: tuple[str, ...] = ()
     """Names her lines are credited to in story scripts, e.g. 真乃."""
     facts: tuple[Fact, ...] = ()
@@ -279,6 +282,7 @@ def _parse_character(
         background=background,
         signature=signature,
         scsp_avatar=scsp_avatar,
+        couple_note=entry.get("couple_note"),
         speakers=tuple(speakers),
         facts=facts,
         sheet_path=sheet_path,

@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "mimosa-hook-status/v1",
+  "recordedAt": "2026-10-25T12:59:59.024Z",
+  "sessionId": "session_ac9d2f1ecc8e3421cf611d399f3148e9",
+  "event": "PostToolUse",
+  "toolName": "Edit",
+  "file": "src/eidolon/app.py",
+  "outcome": "clear",
+  "coverage": "complete",
+  "findingCount": 0,
+  "durationMs": 25,
+  "hostState": "hook_complete",
+  "reportHint": ".mimosa/reports/"
+}

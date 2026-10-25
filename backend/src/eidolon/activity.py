@@ -1604,9 +1604,11 @@ class MeteredJudge:
         text: str,
         affinity: bool = False,
         photo: bool = False,
+        couple: bool = False,
     ) -> "tuple[Need, Judged | None, bool]":
         return await timed(
-            self._log, self._origin, self._judge.judge(character, history, text, affinity, photo)
+            self._log, self._origin,
+            self._judge.judge(character, history, text, affinity, photo, couple),
         )
 
 
@@ -1626,9 +1628,11 @@ class MeteredAffinityJudge:
         text: str,
         affinity: bool = True,
         photo: bool = False,
+        couple: bool = False,
     ) -> "tuple[Judged | None, bool]":
         return await timed(
-            self._log, self._origin, self._judge.judge(character, history, text, affinity, photo)
+            self._log, self._origin,
+            self._judge.judge(character, history, text, affinity, photo, couple),
         )
 
 

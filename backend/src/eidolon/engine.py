@@ -159,6 +159,9 @@ from eidolon.titles import Titles
 from eidolon.world import World
 
 MAX_INPUT_LENGTH = 2000
+
+COUPLE_AT = 90.0
+"""(fork) The value at and above which, in the top tier, his confession may be accepted."""
 """The longest thing a user can say in one turn, typed or spoken, in characters; longer
 input is rejected, not cut short."""
 MAX_TOOL_ROUNDS = 1
@@ -355,12 +358,13 @@ async def _judged(
     text: str,
     affinity: bool,
     photo: bool,
+    couple: bool = False,
 ) -> tuple[Judged | None, bool]:
     """Asked about `affinity`, what saying `text` does to her affinity (None if not, or if it
     cannot be told); asked about `photo`, whether it asks her for one (no if not, or if it
-    cannot be told)."""
+    cannot be told); told `couple` (fork) that they are, for the out-of-line question."""
     try:
-        return await judge.judge(character, history, text, affinity, photo)
+        return await judge.judge(character, history, text, affinity, photo, couple)
     except JudgeError:
         log.warning("judging apart failed; affinity stays as it is, and no photo", exc_info=True)
         return None, False
@@ -528,6 +532,7 @@ WANTS_TO_WRITE = "（制作人这会儿不在。你想给他写一封信。）"
 LETTER_DAYS = {
     "birthday": "今天是制作人的生日。",
     "anniversary": "今天是你们第一次说话之后整月的日子。",
+    "confession": "今天你们成为了恋人——这是你答应他的告白之后，写给他的第一封信。",
 }
 """What a letter written for a day says about that day, if anything."""
 
@@ -545,6 +550,40 @@ def _topic_waiting(line: str) -> str:
         f"你最后一句话说：\n「{line}」\n"
         "他到现在还没回。接着说的时候可以再问一次，可以自己把话接下去"
         "（自问自答也可以），也可以先说别的——按你的性子来，别把原话重复一遍。"
+    )
+
+
+# fork（情侣）：告白当晚她说过的回答，下一轮起变成两人都知道的事实。
+CONFESSING = {
+    "accepted": (
+        "# 刚刚的告白\n"
+        "他刚刚向你告白了，而你决定接受。你现在说的就是你的回答：像你自己那样把答应说出口——"
+        "可以惊讶、可以害羞、可以哽咽，但要让听的人明白你答应了。从这句话起，你们就是恋人了。"
+    ),
+    "refused": (
+        "# 刚刚的告白\n"
+        "他刚刚向你告白。以你的性格，你温柔但诚实地拒绝了他：不伤害他，也不给他模糊的希望。"
+        "像你自己那样说出这个拒绝。"
+    ),
+    "time": (
+        "# 刚刚的告白\n"
+        "他刚刚向你告白。你还没有准备好给出答案——以你的性格，诚实地告诉他你需要一点时间。"
+    ),
+}
+"""What she is told of the confession she is answering, by how she has decided (fork)."""
+
+
+def couple_prompt(since: datetime, note: str | None, timezone: str) -> str:
+    """(fork) The section she is told every turn while they are a couple: since when, and
+    how she loves — her `note`, or the plain rule where she has none of her own."""
+    local = since.astimezone(ZoneInfo(timezone))
+    how = note or (
+        "情话、撒娇、吃醋、想念都可以比从前更直接地说，称呼也可以更亲近——"
+        "都还按你的性子来，不要变成另一个人。"
+    )
+    return (
+        "# 你们的关系\n"
+        f"你们从{local.month}月{local.day}日起是恋人。\n{how}"
     )
 
 
@@ -703,10 +742,19 @@ class ConversationEngine:
         judging = affinity is not None and not affinity.cooling
         eligibility = self._photo_eligibility(conversation, character, photo.own)
         asking_photo = eligibility is not None
+        # fork（情侣）：他们是不是恋人，判断模型的不该说的话要看，告白要不要问也是。
+        coupled = (
+            self._affinities.couple_since(conversation.user_id, conversation.character_id)
+            if self._affinities is not None
+            else None
+        )
         judged_apart = None
         if (judging or asking_photo) and self._retrieval is None and self._affinity_judge:
             judged_apart = asyncio.ensure_future(
-                _judged(self._affinity_judge, character, judged_history, text, judging, asking_photo)
+                _judged(
+                    self._affinity_judge, character, judged_history, text, judging,
+                    asking_photo, coupled is not None,
+                )
             )
         try:
             profile = self._store.get_profile(conversation.user_id)
@@ -716,7 +764,8 @@ class ConversationEngine:
             )
             retrieved = (
                 await self._retrieval.retrieve(
-                    character, history, text, memory, judging, asking_photo
+                    character, history, text, memory, judging, asking_photo,
+                    coupled is not None,
                 )
                 if self._retrieval
                 else Retrieved(None)
@@ -729,6 +778,21 @@ class ConversationEngine:
             if judged_apart is not None and not judged_apart.done():
                 judged_apart.cancel()
         now = self._clock()
+        # fork（情侣）：只有亲密到头、还没在一起时的告白才要她答；答了才成。判断模型
+        # 只看出这是告白，答不答应是她本人拿主意——问的是扮演她的这台模型。
+        confession = None
+        if (
+            judged is not None and judged.confess and coupled is None
+            and affinity is not None and not affinity.cooling
+            and affinity.tier == "intimate" and affinity.value >= COUPLE_AT
+        ):
+            confession = await self._confessed(
+                conversation, character, text, judged_history, llms.chat
+            )
+            if confession == "accepted":
+                coupled = self._affinities.become_couple(
+                    conversation.user_id, conversation.character_id
+                )
         cools = self._cools(conversation, judged)
         if in_call is not None:
             out_of_line_before, hurt_before = in_call.out_of_line, in_call.hurts
@@ -758,6 +822,10 @@ class ConversationEngine:
             if eligibility is not None else None
         )
         about_photo = CANNOT_SEND if eligibility is None else photo_asked and photo_asked.prompt
+        # fork（情侣）：恋人的话每一轮都带着；告白这一轮，她要答的那句另加一节。
+        being_couple = (
+            [couple_prompt(coupled, character.couple_note, timezone)] if coupled else []
+        )
         prompt = self._prompt(
             character, world_prompt, producer_prompt(profile),
             chat_history([*previous, *messages], turns),
@@ -767,6 +835,8 @@ class ConversationEngine:
                     profile, now, timezone, "in_call" if in_call is not None else "typing",
                     affinity_lines, last_contact,
                 ),
+                *being_couple,
+                *([CONFESSING[confession]] if confession else []),
                 *([about_photo] if about_photo else []),
             ],
             [p for p in (retrieved.memories_prompt, retrieved.prompt) if p],
@@ -1021,6 +1091,52 @@ class ConversationEngine:
         if self._affinities is None:
             return None
         return self._affinities.status(conversation.user_id, conversation.character_id)
+
+    async def _confessed(
+        self,
+        conversation: Conversation,
+        character: Character,
+        text: str,
+        history: list[Message],
+        llm: ChatLLM,
+    ) -> str | None:
+        """(fork) What she makes of the confession `text`: asked of the model that plays
+        her, once, as herself — the sheet's essence, where they stand, his words — to answer
+        with one word: 接受 / 时间 / 拒绝. None where the model cannot be asked or its answer
+        cannot be read: the confession is then answered with no stage direction of ours."""
+        said: list[str] = []
+        for message in history[-RECAP_TURNS:]:
+            who = "制作人" if message.role == "user" else character.name
+            line = message.text if message.role == "user" else message.without_cues().ja
+            said.append(f"{who}：{line}")
+        note = f"\n她恋爱中的样子：{character.couple_note}" if character.couple_note else ""
+        prompt = (
+            f"# 你的角色\n你是{character.name}。{character.intro}{note}\n\n"
+            f"# 你们到现在为止\n制作人和你一起走过了很久，你对他的好感已经在最高的一档。\n"
+            + ("\n".join(said) + "\n\n" if said else "")
+            + f"# 他刚刚对你说\n「{text}」\n\n"
+            "# 你怎么回答他\n以你的性格、按你们到现在为止的一切，只回一个词："
+            "接受（愿意和他成为恋人）、时间（还需要一点时间）、拒绝（不想交往）。不要别的字。"
+        )
+        try:
+            answer = ""
+            stream = llm.stream([ChatMessage("system", prompt), ChatMessage("user", text)])
+            try:
+                async for item in stream:
+                    if isinstance(item, str):
+                        answer += item
+            finally:
+                if (close := getattr(stream, "aclose", None)) is not None:
+                    await close()
+        except Exception:
+            log.warning("asking her about the confession failed", exc_info=True)
+            return None
+        for word, as_confession in (("接受", "accepted"), ("时间", "time"), ("拒绝", "refused")):
+            if word in answer:
+                log.info("her answer to his confession: %s", as_confession)
+                return as_confession
+        log.warning("her answer to the confession could not be read: %s", answer[:80])
+        return None
 
     def _cools(self, conversation: Conversation, judged: Judged | None) -> bool:
         """Whether the turn, as `judged`, would begin a cooldown; never if not judged."""

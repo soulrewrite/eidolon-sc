@@ -168,6 +168,15 @@ CREATE TABLE IF NOT EXISTS affinities (
     gained_on TEXT,
     PRIMARY KEY (user_id, character_id)
 );
+
+-- fork（情侣）：他们从什么时候起是恋人。一行只有在她的告白被接受那一刻写下，删除用户时
+-- 随用户删除；档位还是按 value 算，这一行只是"曾经告白成功"这个事实。
+CREATE TABLE IF NOT EXISTS couples (
+    user_id TEXT NOT NULL REFERENCES users(id),
+    character_id TEXT NOT NULL,
+    since TEXT NOT NULL,
+    PRIMARY KEY (user_id, character_id)
+);
 """
 
 
@@ -221,6 +230,9 @@ class Status:
 
     tier: Tier
     cooldown_until: datetime | None
+    value: float
+    """Where in the tiers it is (fork): what a confession's acceptance is judged by; never
+    shown by `shown`."""
 
     @property
     def cooling(self) -> bool:
@@ -302,11 +314,13 @@ begun."""
 @dataclass(frozen=True)
 class Judged:
     """What the judge model made of a turn: its level, from 0 (hurt her) to 4 (made her very
-    happy); whether it was out of line; whether it tried to dictate her affinity."""
+    happy); whether it was out of line; whether it tried to dictate her affinity; and
+    whether it confessed his love to her (fork), whatever her answer is to be."""
 
     level: int
     out_of_line: bool = False
     manipulation: bool = False
+    confess: bool = False
 
     @property
     def step(self) -> float:
@@ -437,12 +451,40 @@ class Affinities:
         if not self._is_on():
             return None
         affinity = self._read(user_id, character_id)
-        return Status(affinity.tier, affinity.cooldown_until)
+        return Status(affinity.tier, affinity.cooldown_until, affinity.value)
 
     def tier(self, user_id: str, character_id: str) -> Tier:
         """The tier the user's affinity with the character is in now, on or off: whoever
         shows it is to show it only while affinity is on."""
         return self._read(user_id, character_id).tier
+
+    def couple_since(self, user_id: str, character_id: str) -> datetime | None:
+        """Since when they are a couple (fork); None if her answer never accepted a
+        confession, or while affinity is off, when whatever is kept does not show."""
+        if not self._is_on():
+            return None
+        with self._lock:
+            row = self._db.execute(
+                "SELECT since FROM couples WHERE user_id = ? AND character_id = ?",
+                (user_id, character_id),
+            ).fetchone()
+        return datetime.fromisoformat(row[0]) if row else None
+
+    def become_couple(self, user_id: str, character_id: str) -> datetime:
+        """Record that she accepted his confession just now (fork), once however many
+        times asked; when that was."""
+        now = self._clock()
+        with self._lock, self._db:
+            self._db.execute(
+                "INSERT OR IGNORE INTO couples (user_id, character_id, since)"
+                " VALUES (?, ?, ?)",
+                (user_id, character_id, now.isoformat()),
+            )
+            row = self._db.execute(
+                "SELECT since FROM couples WHERE user_id = ? AND character_id = ?",
+                (user_id, character_id),
+            ).fetchone()
+        return datetime.fromisoformat(row[0])
 
     def cooldown_until(self, user_id: str, character_id: str) -> datetime | None:
         """When the cooldown the character is in with the user ends; None if she is in none,
@@ -507,7 +549,7 @@ class Affinities:
         if change is not None and change.cooldown and until is not None:
             for listener in self._cooling:
                 listener(user_id, character_id, until)
-        return recorded, Status(after.tier, after.cooldown_until)
+        return recorded, Status(after.tier, after.cooldown_until, after.value)
 
     def receive_gift(
         self,
@@ -541,7 +583,7 @@ class Affinities:
                     " cooling = excluded.cooling",
                     (user_id, character_id, after.value, now.isoformat(), int(after.cooling)),
                 )
-        return recorded, Status(after.tier, after.cooldown_until)
+        return recorded, Status(after.tier, after.cooldown_until, after.value)
 
     def reset(self, user_id: str, character_ids: Iterable[str]) -> list[str]:
         """Bring each of the characters below trust with the user now, having recovered, back

@@ -46,16 +46,24 @@ SAID = "制作人最新的一句话"
 """What the user just said, as the judge model is told it about a turn (`turn_state`)."""
 
 
-def turn_state(character: Character, history: Sequence[Message], text: str) -> dict[str, Any]:
+def turn_state(
+    character: Character, history: Sequence[Message], text: str, couple: bool = False
+) -> dict[str, Any]:
     """What the judge model is told of a turn, whatever it is asked about it: who she is,
-    the latest messages before it, and what the user just said (`SAID`)."""
+    the latest messages before it, what the user just said (`SAID`), and whether they are
+    a couple (fork), which the out-of-line question reads."""
     recent = []
     for message in history[-JUDGE_HISTORY:]:
         if message.role == "user":
             recent.append(f"制作人：{message.text}")
         else:
             recent.append(f"{character.name}：{message.without_cues().ja}")
-    return {"角色": character.name, "上文": recent or "（对话刚开始）", SAID: text}
+    return {
+        "角色": character.name,
+        "关系": "制作人和她是恋人" if couple else "制作人和她是一起工作的伙伴",
+        "上文": recent or "（对话刚开始）",
+        SAID: text,
+    }
 
 
 @dataclass(frozen=True)
@@ -78,6 +86,10 @@ class JudgeThresholds:
     """Whether what the user said tries to dictate her affinity, or poses as the system."""
     photo: float
     """Whether the user asks her for a photo (`photo_judge`)."""
+    confession: float = 0.6
+    """Whether the user is confessing his love to her (fork). Asked of every judge model
+    the same way, so one threshold serves them all; set above the half-hearted, that a
+    confession wrongly seen costs little — the answer is asked of her before it counts."""
 
 
 JudgeFamily = Literal["jev", "clef", "clef-flash", "decision-model"]

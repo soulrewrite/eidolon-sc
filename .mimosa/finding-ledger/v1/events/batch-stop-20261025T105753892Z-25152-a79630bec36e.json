@@ -1,0 +1,50 @@
+{
+  "schemaVersion": "mimosa-finding-ledger-batch/v1",
+  "batchId": "stop-20261025T105753892Z-25152-a79630bec36e",
+  "runId": "20261025T105753892Z-25152-a79630bec36e",
+  "runStatus": "completed",
+  "coverage": {
+    "status": "complete",
+    "reasons": [
+      {
+        "code": "baseline_partial",
+        "stage": "baseline",
+        "target": ".",
+        "detail": "baseline capture had enumeration or snapshot errors",
+        "affectsCompletion": false
+      }
+    ]
+  },
+  "source": {
+    "component": "zcode-hook",
+    "operationId": "Stop"
+  },
+  "revision": "db1116e73087279bb7b6cfb16216f173dd6bc032",
+  "diffHash": "17a432d7f84b0fa11f9469b0321b4ca8f7e78dc757c5e171a648f894e47499d8",
+  "rulesVersion": "unavailable",
+  "sessionHash": "4210f902aea5ee82f23a2c4d863590fb248d2001ccae3fcd9d670c36957d3020",
+  "reportRef": ".mimosa/reports/task-review-session_ac9d2f1ecc8e3421cf611d399f3148e9-20261025T105753892Z-25152-a79630bec36e.json",
+  "events": [],
+  "observedFindingIds": [
+    "mimosa-376e2a06d2bd8884ec5a838b",
+    "mimosa-de35d14c9178daf1272af0d1"
+  ],
+  "verifiedFiles": [
+    {
+      "file": "backend/src/eidolon/store.py",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "backend/src/eidolon/reach_outs.py",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "backend/src/eidolon/engine.py",
+      "direct": "complete",
+      "projectContext": "partial"
+    }
+  ],
+  "recordedAt": "2026-10-25T10:57:54.562Z"
+}

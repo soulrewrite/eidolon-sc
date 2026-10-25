@@ -139,10 +139,12 @@ class RetrievalJudge(Protocol):
         text: str,
         affinity: bool = False,
         photo: bool = False,
+        couple: bool = False,
     ) -> tuple[Need, Judged | None, bool]:
         """What answering `text` needs looked up; asked about `affinity` too, what saying it
         does to her affinity (None if that alone cannot be told); and asked about `photo`,
-        whether it asks her for a photo (no if that alone cannot be told)."""
+        whether it asks her for a photo (no if that alone cannot be told); told `couple`
+        (fork) that they are, for the out-of-line question to read."""
         ...
 
 
@@ -341,6 +343,7 @@ class Retrieval:
         memory: MemoryTurn | None = None,
         affinity: bool = False,
         photo: bool = False,
+        couple: bool = False,
     ) -> Retrieved:
         """Look up what this turn needs, finding the user's memories through `memory`; and
         judge what it does to her affinity, and whether it asks her for a photo, if asked
@@ -353,7 +356,7 @@ class Retrieval:
             judged, asked = None, False
             try:
                 need, judged, asked = await self._judge.judge(
-                    character, history, text, affinity, photo
+                    character, history, text, affinity, photo, couple
                 )
             except JudgeError:
                 log.warning("retrieval judge failed; retrieving anyway", exc_info=True)
@@ -684,11 +687,12 @@ class ModelRetrievalJudge:
         text: str,
         affinity: bool = False,
         photo: bool = False,
+        couple: bool = False,
     ) -> tuple[Need, Judged | None, bool]:
         """As `RetrievalJudge.judge`, affinity's questions and the photo's asked in the same
         request."""
         answers = await self._judge_model.ask(
-            turn_state(character, history, text), judge_questions(affinity, photo)
+            turn_state(character, history, text, couple), judge_questions(affinity, photo)
         )
         need = self.decide(_answer(answers))
         judged = None

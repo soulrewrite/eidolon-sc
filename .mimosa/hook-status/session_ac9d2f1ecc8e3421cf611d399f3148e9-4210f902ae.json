@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "mimosa-hook-status/v1",
+  "recordedAt": "2026-10-25T09:58:26.111Z",
+  "sessionId": "session_ac9d2f1ecc8e3421cf611d399f3148e9",
+  "event": "PostToolUse",
+  "toolName": "Write",
+  "file": "C:\\Users\\skya\\.zcode\\workspace\\default\\eidolon-deploy\\letter-work\\seed_question.py",
+  "outcome": "inconclusive",
+  "coverage": "partial",
+  "findingCount": 0,
+  "durationMs": 13,
+  "hostState": "hook_complete",
+  "reportHint": ".mimosa/reports/"
+}

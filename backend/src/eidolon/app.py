@@ -623,12 +623,16 @@ def create_app(backend: Backend) -> FastAPI:
 
     @app.get("/api/characters/{character_id}/affinity")
     def affinity(character_id: str, user_id: UserId) -> dict | None:
-        """Her affinity with the user now, by tier only, and when the cooldown ends if she
-        is in one; null while affinity is off."""
+        """Her affinity with the user now, by tier only, when the cooldown ends if she is
+        in one, and since when they are a couple (fork); null while affinity is off."""
         if character_id not in characters:
             raise HTTPException(404, "角色不存在")
         status = backend.affinities.status(user_id, character_id)
-        return status and status.shown()
+        if status is None:
+            return None
+        since = backend.affinities.couple_since(user_id, character_id)
+        shown = status.shown()
+        return shown | {"couple_since": since.isoformat()} if since else shown
 
     @app.get("/api/memories")
     async def list_memories(user_id: UserId) -> list[dict]:

@@ -67,6 +67,8 @@ ClientFactory = Callable[..., httpx.AsyncClient]
 MANO_SHEET = "# 人设\n你是櫻木真乃。口癖是「ほわっ」。"
 KOGANE_SHEET = "# 人设\n你是月岡恋鐘。说长崎方言。"
 MANO_PHOTO = ("sakuragi mano", "brown hair, medium hair, brown eyes")
+MANO_COUPLE_NOTE = "恋爱中的你说话更小声，但比谁都认真，会悄悄练习说喜欢。"
+"""How Mano loves, as tests tell her while they are a couple (fork)."""
 """Mano's `photo_tag` and `photo_appearance`."""
 AVATAR = b"\x89PNG\r\n\x1a\n fake avatar"
 SCSP_AVATAR = b"\xff\xd8\xff fake SCSP avatar"
@@ -104,6 +106,7 @@ class CharacterConfig:
         other_names: tuple[str, str, str] | None = None,
         liked_gifts: tuple[str, ...] | None = ("cake",),
         photo: tuple[str, str] | None = None,
+        couple_note: str | None = None,
     ) -> "CharacterConfig":
         """`greeting` is her greeting in Japanese, delivery cues and all, and its subtitle;
         `call_opener` her call opener, likewise; `other_names` her `name_zh`, `name_kana`
@@ -147,6 +150,8 @@ class CharacterConfig:
                 entry += f"{field} = {json.dumps(value, ensure_ascii=False)}\n"
         if liked_gifts is not None:
             entry += f"liked_gifts = {json.dumps(list(liked_gifts))}\n"
+        if couple_note is not None:
+            entry += f"couple_note = {json.dumps(couple_note, ensure_ascii=False)}\n"
         if photo is not None:
             entry += f"photo_tag = {json.dumps(photo[0])}\n"
             entry += f"photo_appearance = {json.dumps(photo[1])}\n"
@@ -176,6 +181,7 @@ def characters(tmp_path: Path) -> CharacterConfig:
             "mano", "櫻木真乃", MANO_SHEET, intro="illumination STARS 的中心", avatar=AVATAR,
             scsp_avatar=SCSP_AVATAR, color="#ffbad6", background=BACKGROUND, speakers=["真乃"],
             voice_id="mano-voice", idol_id=1, default_outfit="stand/1030010010", photo=MANO_PHOTO,
+            couple_note=MANO_COUPLE_NOTE,
         )
         .add(
             "kogane", "月岡恋鐘", KOGANE_SHEET, intro="L'Antica 的偶像", color="#f84cad",
