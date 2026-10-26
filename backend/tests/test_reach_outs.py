@@ -750,86 +750,48 @@ async def until(done) -> None:
             await asyncio.sleep(0.01)
 
 
-async def test_at_night_she_does_not_come_but_in_the_morning_after_between_8_and_10(
+async def test_she_comes_at_night_too(
     make_client: ClientFactory, settings: Settings
 ):
+    """(fork) 取消了「22:00–08:00 不打扰」：夜里到点也会开口。"""
     client, _, clock, conversation = await talked(
         make_client, REACH_OUT,
         at=datetime(2026, 10, 19, 12, tzinfo=UTC),  # 20:00 in Shanghai
         random=FakeRandom(0, MIDDLE),
     )
-    # 22:00 in Shanghai, 20 hours on; to 9:00, halfway through the morning
+    # 22:00 in Shanghai：到点
     last_contact(settings.database_path, conversation, clock.now - timedelta(hours=18))
     reach_out = backend_of(client).reach_outs
-    came = []
-    for to in (timedelta(hours=2), timedelta(hours=10, minutes=59), timedelta(minutes=1)):
-        clock.advance(seconds=to.total_seconds())
-        await reach_out.run_due()
-        came.append(len(reach_outs(await record(client, conversation))))
 
-    assert came == [0, 0, 1]
+    clock.advance(hours=2)
+    await reach_out.run_due()
+
+    assert len(reach_outs(await record(client, conversation))) == 1
 
 
-async def test_a_day_the_earliest_come_first_the_rest_the_next_morning_by_his_time_zone(
+async def test_without_a_daily_limit_every_one_who_is_due_comes(
     make_client: ClientFactory, settings: Settings, github: FakeIdentityProvider
 ):
-    """The day goes by the producer's time zone, New York's: Mano, put off from 21:00 there,
-    comes at 9:00 the next morning, though it is the same day still in UTC."""
+    """(fork) 取消每天的次数上限：这个先到，不挡后面那位；两个都来。"""
     client, _, clock, mano = await talked(
         make_client, REPLY, REACH_OUT, REACH_OUT,
         settings=replace(settings, admins=frozenset({ADMIN})),
-        at=datetime(2026, 10, 20, 0, tzinfo=UTC),  # 20:00 in New York
+        at=datetime(2026, 10, 20, 0, tzinfo=UTC),
         random=FakeRandom(0, 0, MIDDLE),
     )
-    await live_in(client, "America/New_York")
-    await allow_a_day(client, github, 1)
     kogane = await start_conversation(client, "kogane")
     await send_turn(client, kogane, "在吗")
     database = settings.database_path
-    at = clock.now + timedelta(hours=1)  # 21:00 in New York
+    at = clock.now + timedelta(hours=1)
     last_contact(database, mano, at - timedelta(hours=20))
-    last_contact(database, kogane, at - timedelta(hours=20, minutes=1))  # a minute before
+    last_contact(database, kogane, at - timedelta(hours=20, minutes=1))
     reach_out = backend_of(client).reach_outs
 
-    came = []
-    for to in (timedelta(hours=1), timedelta(hours=11, minutes=59), timedelta(minutes=1)):
-        clock.advance(seconds=to.total_seconds())
-        await reach_out.run_due()
-        came.append((
-            len(reach_outs(await record(client, kogane))),
-            len(reach_outs(await record(client, mano))),
-        ))
-
-    assert came == [(1, 0), (1, 0), (1, 1)]
-
-
-async def test_one_over_the_day_put_off_past_the_week_does_not_come(
-    make_client: ClientFactory, settings: Settings, github: FakeIdentityProvider
-):
-    """Mano, missed as the backend was down six days on, put off to the next morning in the
-    week; over the day by then, and put off past it."""
-    client, _, clock, mano = await talked(
-        make_client, REPLY, REACH_OUT, REACH_OUT,
-        settings=replace(settings, admins=frozenset({ADMIN})),
-        at=datetime(2026, 10, 19, 6, tzinfo=UTC),  # 14:00 in Shanghai
-        random=FakeRandom(0, 0, 0, 0),
-    )
-    await allow_a_day(client, github, 1)
-    kogane = await start_conversation(client, "kogane")
-    await send_turn(client, kogane, "在吗")
-    database = settings.database_path
-    last_contact(database, mano, clock.now - timedelta(days=6))  # put off to 20 hours on
-    last_contact(database, kogane, clock.now - timedelta(minutes=1))  # due a minute before
-    reach_out = backend_of(client).reach_outs
-
-    await reach_out.run_due()
-    clock.advance(hours=20)
-    await reach_out.run_due()
-    clock.advance(days=1)
+    clock.advance(hours=1)
     await reach_out.run_due()
 
     assert len(reach_outs(await record(client, kogane))) == 1
-    assert reach_outs(await record(client, mano)) == []
+    assert len(reach_outs(await record(client, mano))) == 1
 
 
 async def test_what_came_as_the_backend_was_down_is_not_made_up_for_but_put_off(

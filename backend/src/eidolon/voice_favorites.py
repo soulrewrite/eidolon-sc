@@ -13,6 +13,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import secrets
 import sqlite3
 import threading
 from dataclasses import dataclass
@@ -78,24 +79,26 @@ class VoiceFavorites:
         with self._lock, self._db:
             self._db.executescript(_SCHEMA)
 
-    def add(self, user_id: str, character_id: str, source: str, ja: str, zh: str) -> Favorite:
-        """Keep the line at `source`, copied to a place of its own; one the user already
-        has (the same take of the same line) is the one kept. Raises `Full` past
+    def add(self, user_id: str, character_id: str, ja: str, zh: str) -> tuple[Favorite, bool]:
+        """Keep the line, in a copy of its own; returns it and whether it is new. One the
+        user already has (the same line from the same character) is the one kept, its copy
+        left as it is (see `rotate` for when it is to be replaced). Raises `Full` past
         `PER_USER`."""
-        path = self._kept_path(user_id, source)
         now = self._clock().astimezone(UTC).isoformat()
         with self._lock, self._db:
             row = self._db.execute(
-                "SELECT * FROM voice_favorites WHERE user_id = ? AND path = ?",
-                (user_id, path),
+                "SELECT * FROM voice_favorites"
+                " WHERE user_id = ? AND character_id = ? AND ja = ?",
+                (user_id, character_id, ja),
             ).fetchone()
             if row is not None:
-                return _favorite(row)
+                return _favorite(row), False
             count = self._db.execute(
                 "SELECT COUNT(*) FROM voice_favorites WHERE user_id = ?", (user_id,)
             ).fetchone()[0]
             if count >= PER_USER:
                 raise Full
+            path = self._new_path(user_id, character_id, ja)
             cursor = self._db.execute(
                 "INSERT INTO voice_favorites (user_id, character_id, path, ja, zh, created_at)"
                 " VALUES (?, ?, ?, ?, ?, ?)",
@@ -105,7 +108,18 @@ class VoiceFavorites:
             row = self._db.execute(
                 "SELECT * FROM voice_favorites WHERE id = ?", (cursor.lastrowid,)
             ).fetchone()
-        return _favorite(row)
+        return _favorite(row), True
+
+    def rotate(self, favorite: Favorite) -> str:
+        """Give the favorite a fresh copy address, returning the one it had, to be deleted:
+        the bucket serves these `immutable`, so a copy that is replaced has to move — the
+        same address would be served from browsers' caches long after the new take."""
+        path = self._new_path(favorite.user_id, favorite.character_id, favorite.ja)
+        with self._lock, self._db:
+            self._db.execute(
+                "UPDATE voice_favorites SET path = ? WHERE id = ?", (path, favorite.id)
+            )
+        return favorite.path
 
     def remove(self, user_id: str, favorite_id: int) -> str | None:
         """Forget one of the user's favorites, returning the path of what it kept; None if
@@ -123,16 +137,28 @@ class VoiceFavorites:
     async def refresh(
         self, user_id: str, character_id: str, ja: str, speech: MessageSpeech
     ) -> None:
-        """Copy the take she just voiced again over the kept copy of every favorite of this
-        user's for that line (fork): 「重新生成」之后，收藏里听到的就是新那一版。"""
+        """Put the take she just voiced again where every favorite of this user's for that
+        line is heard from (fork): 「重新生成」之后，收藏里听到的就是新那一版。Each is given
+        a new address first, so no browser keeps serving the old take."""
         with self._lock:
             rows = self._db.execute(
-                "SELECT path FROM voice_favorites"
+                "SELECT * FROM voice_favorites"
                 " WHERE user_id = ? AND character_id = ? AND ja = ?",
                 (user_id, character_id, ja),
             ).fetchall()
         for row in rows:
-            await speech.keep(character_id, ja, row["path"], refresh=True)
+            old = self.rotate(_favorite(row))
+            url = await speech.keep(character_id, ja, self._path_of(row["id"]), refresh=True)
+            if url is not None:
+                await speech.drop(old)
+
+    def _path_of(self, favorite_id: int) -> str:
+        with self._lock:
+            row = self._db.execute(
+                "SELECT path FROM voice_favorites WHERE id = ?", (favorite_id,)
+            ).fetchone()
+        assert row is not None
+        return row["path"]
 
     def listed(self, user_id: str) -> list[Favorite]:
         """The user's kept lines, newest first."""
@@ -148,10 +174,14 @@ class VoiceFavorites:
             self._db.close()
 
     @staticmethod
-    def _kept_path(user_id: str, source: str) -> str:
-        """Where the copy of what is at `source` is kept: the same for the same take, so
-        keeping it twice keeps it once."""
-        digest = hashlib.sha256(f"{user_id}\n{source}".encode()).hexdigest()[:16]
+    def _new_path(user_id: str, character_id: str, ja: str) -> str:
+        """A fresh address for a kept copy. The bucket serves these `immutable`, so a copy
+        that is replaced has to move: kept at the same address, the old take would be served
+        from browsers' caches long after."""
+        nonce = secrets.token_hex(6)
+        digest = hashlib.sha256(
+            f"{user_id}\n{character_id}\n{ja}\n{nonce}".encode()
+        ).hexdigest()[:16]
         return f"{DIRECTORY}/{digest}.mp3"
 
 
@@ -193,13 +223,17 @@ def add_voice_favorite_routes(
         zh = segments[body.segment].get("zh") or ""
         if not ja.strip():
             raise HTTPException(404, "这一句没有语音")
-        kept = favorites.add(
-            user_id, character_id, f"{character_id}/{ja}", ja, zh
-        )
-        url = await speech.keep(character_id, ja, kept.path, refresh=True)
+        kept, created = favorites.add(user_id, character_id, ja, zh)
+        # 已经收藏过的：换一个新地址再拷（桶上这些是 immutable，原地覆盖浏览器看不到）。
+        old = None if created else favorites.rotate(kept)
+        path = favorites._path_of(kept.id)
+        url = await speech.keep(character_id, ja, path, refresh=True)
         if url is None:
-            favorites.remove(user_id, kept.id)
+            if created:
+                favorites.remove(user_id, kept.id)
             raise HTTPException(503, "这一句现在存不下来，稍后再试")
+        if old is not None:
+            await speech.drop(old)
         return _shown(kept, url, characters)
 
     @app.delete("/api/voice-favorites/{favorite_id}", status_code=204)

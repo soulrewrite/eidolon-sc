@@ -225,8 +225,8 @@ class ReachOuts:
                 log.exception("reaching out in conversation %s failed", current.conversation.id)
         for found in sorted(due, key=lambda d: d.at):
             try:
-                if await asyncio.to_thread(self._within_the_day, found, now):
-                    await self._reach_out(found, now)
+                # fork：不设每天的次数上限，到点就说。
+                await self._reach_out(found, now)
             except Exception:
                 log.exception("reaching out in conversation %s failed", found.conversation.id)
 
@@ -313,16 +313,7 @@ class ReachOuts:
         # night still comes first: said in the morning, not at three.
         if self._birthday_waiting(conversation.user_id, zone, now, current.reached_out_at):
             due = min(due, now)
-        if _at_night(due, zone):
-            night = due
-        elif due <= now and _at_night(now, zone):
-            night = now
-        else:
-            night = None
-        if night is not None:
-            if morning is None:
-                morning = self._draw_morning(conversation.id, contact)
-            due = _morning_after(night, zone) + MORNING * morning
+        # fork：取消了「22:00–08:00 不打扰」，什么时候都能开口。
         if now < due:  # one past `WINDOW` never comes, as none is looked at then
             return None
         if self._talking(conversation.id):
@@ -374,26 +365,6 @@ class ReachOuts:
         if reached_out_at is None:
             return True
         return reached_out_at.astimezone(zone).date() != today
-
-    def _within_the_day(self, due: _Due, now: datetime) -> bool:
-        """Whether the user may be reached out to once more today; if not, her time is put
-        off to the next day's morning.
-
-        (fork) The day's count is for opening a conversation, not for finishing one: picking
-        her unanswered question back up (`due.topic`) is allowed however many the user has
-        had — otherwise a morning's greetings spend the whole day's count before the nudge is
-        due, and the question waits till tomorrow, long past `NUDGE_WITHIN`."""
-        if due.topic is not None:
-            return True
-        today = now.astimezone(due.zone).date()
-        began = datetime.combine(today, time(), due.zone)
-        if self._activity.reached_out_since(due.conversation.user_id, began) < (
-            self._config.reach_outs.per_day
-        ):
-            return True
-        tomorrow = datetime.combine(today + timedelta(days=1), NIGHT[1], due.zone)
-        self._put_off(due.conversation.id, due.contact, tomorrow + MORNING * self._draw())
-        return False
 
     def _talking(self, conversation_id: str) -> bool:
         """Whether a text turn is under way in the conversation, or a call."""

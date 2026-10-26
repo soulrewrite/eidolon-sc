@@ -37,6 +37,10 @@ log = logging.getLogger(__name__)
 TICK = timedelta(minutes=1)
 """How often it is looked whether an evening letter's time has come."""
 
+CONFESSION_WITHIN = timedelta(days=7)
+"""(fork) How long after they became a couple her confession letter may still come: that
+evening, or the first chance after it if that was missed."""
+
 EVENING = (time(18), time(22))
 """When in the producer's day she leaves a letter: an hour in it is drawn, one day to the next."""
 
@@ -180,8 +184,10 @@ class Letters:
         trigger = self._trigger(conversation, local, zone)
         if trigger is None:
             return
-        if self._written_today(conversation, local) or self._user_written_today(
-            conversation, local
+        # (fork) 告白信和普通信分开算：它当晚就要到，不因为别的信先到了而被压掉。
+        if trigger != "confession" and (
+            self._written_today(conversation, local)
+            or self._user_written_today(conversation, local)
         ):
             return
         if self._writing:
@@ -229,13 +235,15 @@ class Letters:
         return None
 
     def _confession(self, conversation: Conversation, local: datetime) -> bool:
-        """(fork) Whether today is the day she answered his confession and no confession
-        letter has been written: it comes the same day, whatever in it they became a
-        couple, over the evening's drawn minute."""
+        """(fork) Whether she became his lover recently and has not written the letter that
+        goes with it: it comes that day, whatever in it they became a couple, and — if it
+        was missed then (a limit on letters, the server down) — as soon as it can after."""
         since = self._affinities.couple_since(
             conversation.user_id, conversation.character_id
         )
-        if since is None or since.astimezone(local.tzinfo).date() != local.date():
+        if since is None:
+            return False
+        if local - since.astimezone(local.tzinfo) > CONFESSION_WITHIN:
             return False
         with self._lock:
             written = self._db.execute(
@@ -273,15 +281,26 @@ class Letters:
         return local >= (last.astimezone(local.tzinfo) + timedelta(days=gap))
 
     def _written_today(self, conversation: Conversation, local: datetime) -> bool:
-        last = self._last_delivered(conversation)
-        return last is not None and last.astimezone(local.tzinfo).date() == local.date()
+        """Whether she has written him an ordinary letter today: a confession letter is
+        counted apart (fork), so the evening one can still come the day they became a
+        couple."""
+        with self._lock:
+            row = self._db.execute(
+                "SELECT delivered_at FROM letters WHERE user_id = ? AND character_id = ?"
+                " AND trigger != 'confession' ORDER BY delivered_at DESC LIMIT 1",
+                (conversation.user_id, conversation.character_id),
+            ).fetchone()
+        if row is None:
+            return False
+        return datetime.fromisoformat(row["delivered_at"]).astimezone(local.tzinfo).date() == local.date()
 
     def _user_written_today(self, conversation: Conversation, local: datetime) -> bool:
         """Whether he has had a letter today from anyone: one an evening is enough, not one
         per close character at once."""
         with self._lock:
             rows = self._db.execute(
-                "SELECT delivered_at FROM letters WHERE user_id = ? ORDER BY delivered_at DESC LIMIT 1",
+                "SELECT delivered_at FROM letters WHERE user_id = ?"
+                " AND trigger != 'confession' ORDER BY delivered_at DESC LIMIT 1",
                 (conversation.user_id,),
             ).fetchone()
         if rows is None:

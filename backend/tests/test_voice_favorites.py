@@ -122,10 +122,16 @@ async def test_voicing_it_again_refreshes_what_the_favorite_keeps(world):
 
     await favorites.refresh(user.id, "mano", "ほわっ、かわいい", speech)
 
-    assert speech.refreshed[-1] == path
-    # 收藏一次就写一份；再收藏同一句是覆盖成最新那一版，不是又多一条
-    assert client.post("/api/voice-favorites", json=_body(reply.id)).json()["id"] == kept["id"]
-    assert len(speech.kept) == 1
+    # 刷新会换一个新地址（桶上是 immutable，原地覆盖浏览器只认旧的那份），
+    # 旧的那份随即删掉，收藏还是同一条。
+    assert speech.refreshed[-1] != path
+    assert path in speech.dropped
+    listed = client.get("/api/voice-favorites").json()
+    assert len(listed) == 1 and listed[0]["url"] != kept["url"]
+    # 再收藏同一句：还是同一条，地址再换一次
+    again = client.post("/api/voice-favorites", json=_body(reply.id)).json()
+    assert again["id"] == kept["id"] and again["url"] != listed[0]["url"]
+    assert len(client.get("/api/voice-favorites").json()) == 1
 
 
 def test_a_segment_of_her_saying_nothing_is_not_a_favorite(world):
@@ -152,22 +158,21 @@ def test_the_store_refuses_more_than_the_cap(tmp_path: Path, monkeypatch: pytest
     second = store.create_user("second").id
     favorites = VoiceFavorites(tmp_path / "eidolon.db", lambda: NOW)
     try:
-        favorites.add(first, "mano", "mano/a", "あ", "")
-        favorites.add(first, "mano", "mano/b", "い", "")
+        favorites.add(first, "mano", "あ", "")
+        favorites.add(first, "mano", "い", "")
         with pytest.raises(voice_favorites.Full):
-            favorites.add(first, "mano", "mano/c", "う", "")
-        favorites.add(second, "mano", "mano/a", "あ", "")  # another user has their own count
+            favorites.add(first, "mano", "う", "")
+        favorites.add(second, "mano", "あ", "")  # another user has their own count
         store.close()
     finally:
         favorites.close()
 
 
-def test_the_copy_is_named_for_its_user_and_take():
-    first = VoiceFavorites._kept_path("u1", "mano/あ")
-    assert first == VoiceFavorites._kept_path("u1", "mano/あ")
-    assert first != VoiceFavorites._kept_path("u1", "mano/い")
-    assert first != VoiceFavorites._kept_path("u2", "mano/あ")
-    assert first.startswith("voice-favorites/")
+def test_every_copy_gets_an_address_of_its_own():
+    """每次拷一份都是新地址：桶上这些是 immutable，原地覆盖浏览器还是放旧的。"""
+    first = VoiceFavorites._new_path("u1", "mano", "あ")
+    assert first != VoiceFavorites._new_path("u1", "mano", "あ")
+    assert first.startswith("voice-favorites/") and first.endswith(".mp3")
 
 
 def test_the_cap_is_counted_per_user_in_the_database(tmp_path: Path):
