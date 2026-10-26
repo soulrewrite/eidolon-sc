@@ -89,9 +89,10 @@ async def test_small_talk_retrieves_no_memories(make_client: ClientFactory):
 
     assert memories_section(context_of(llm.prompts[-1])) == ""
     assert reranker.calls == []
-    # The judge model answering at once, nothing was looked up before it did: each turn is
-    # embedded only to show the background model the memories nearest it.
-    assert embedder.queries == ["我家的猫叫小白哦", "早上好"]
+    # The judge model answering at once, nothing was looked up before it did: the first turn
+    # is embedded only to show the background model the memories nearest it. (fork) 第二句
+    # 只是打招呼，连这次嵌入都省了——见 `memory.worth_extracting`.
+    assert embedder.queries == ["我家的猫叫小白哦"]
     assert embedder.documents == [CAT]  # embedded as it was written down, not when searched
 
 

@@ -200,6 +200,45 @@ async def test_the_background_model_reads_the_exchange_and_what_is_already_remem
     assert [m.text for m in listed] == [TRIP, CAT]
 
 
+async def test_a_turn_that_reveals_nothing_is_not_asked_about(
+    world: World, make_memories: MemoriesFactory
+):
+    """(fork) 一句「嗯」或「哈哈」不占一次后台模型的请求：短句里没有关于制作人的话，
+    就不写；说了他的事，多短都照问。"""
+    background = FakeBackgroundLLM(memorized(CAT), memorized(CAT))
+    memories = make_memories(background_llm=background)
+    conversation = world.conversation("mano")
+
+    await tell(memories, world, conversation, "嗯嗯")
+    await tell(memories, world, conversation, "哈哈哈")
+    await memories.entries(world.producer)
+    assert background.prompts == []
+
+    await tell(memories, world, conversation, "我养了只猫")
+    await memories.entries(world.producer)
+    assert len(background.prompts) == 1
+
+
+def test_worth_extracting_asks_about_what_says_something():
+    # 寒暄、笑声、应答：不值得一次请求
+    assert not memory.worth_extracting("嗯")
+    assert not memory.worth_extracting("哈哈哈")
+    assert not memory.worth_extracting("你好")
+    assert not memory.worth_extracting("晚安！")
+    assert not memory.worth_extracting("好的。")
+    # 问她的短问句：提取提示词本来就不记「制作人向偶像提的问题」
+    assert not memory.worth_extracting("好玩吗")
+    assert not memory.worth_extracting("照片呢？")
+    # 说了他的事：照问
+    assert memory.worth_extracting("我明天考试")
+    assert memory.worth_extracting("今天好累")
+    assert memory.worth_extracting("最近在学吉他")
+    assert not memory.worth_extracting("你今天开心吗")  # 问的是她，没带「我」——跳过
+    assert memory.worth_extracting("週末は友達と出かける")  # 长句，不问内容
+    # 带第一人称的问句：可能是在说自己
+    assert memory.worth_extracting("我今天该去吗？")
+
+
 async def test_the_background_model_is_told_to_keep_only_what_still_matters_later(
     world: World, make_memories: MemoriesFactory
 ):

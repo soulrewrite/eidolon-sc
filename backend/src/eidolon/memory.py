@@ -38,6 +38,7 @@ still list and delete the memories already kept.
 import asyncio
 import json
 import logging
+import re
 import sqlite3
 import threading
 from collections.abc import Callable, Mapping, Sequence
@@ -742,11 +743,54 @@ class MemoryTurn:
     ) -> None:
         """Start writing down what the user revealed in this turn: `text`, said after
         `history` and answered with `reply`; `query_vector` is the turn's query embedded
-        already, if it was, so it is not embedded again."""
+        already, if it was, so it is not embedded again.
+
+        A turn that reveals nothing (see `worth_extracting`) is not written down at all,
+        rather than asking the background model to find that out: the request is the one
+        thing here that costs, and '嗯' and '哈哈' are most of the short ones."""
+        if not worth_extracting(text):
+            return
         self._memories._write_down(
             self._conversation, self._timezone, self._clearings, self._llm, self._hold,
             history, text, reply, query_vector,
         )
+
+
+SHORTEST = 12
+"""How long, at most, a question of hers may be and still be skipped when it says nothing
+about the producer (see `worth_extracting`)."""
+
+_SAYS_NOTHING = re.compile(
+    r"^(嗯+|啊+|哦+|噢+|哈+|呵+|嘿+|唔+|呃+|好的?|好吧|行|可以|对|是的?|没错|谢谢|多谢|"
+    r"晚安|早安|早上好|晚上好|午安|你好|在吗|在|OK|ok|www+|草|笑|睡了|拜拜|再见)"
+    r"[。！!～~…\.\s]*$",
+    re.IGNORECASE,
+)
+"""A turn that is nothing but a greeting, a laugh or a nod."""
+
+_ASKS = re.compile(r"[？?]\s*$|[吗呢嘛]\s*$")
+"""A turn that asks her something."""
+
+_ME = ("我", "俺", "咱", "私", "僕")
+"""What makes a short question about the producer too, worth reading in full."""
+
+
+def worth_extracting(text: str) -> bool:
+    """Whether what the user said is worth asking the background model about.
+
+    Two kinds of turn are not, and asking about them is a model call bought for nothing:
+    one that is nothing but '嗯', '哈哈', '你好' or '晚安', and a short question about her —
+    '好玩吗', '照片呢' — which the extraction prompt is told not to remember anyway. On a
+    chat-heavy account those are about a sixth of the turns. Anything else is read, the
+    model being the one that decides what lasts."""
+    said = text.strip()
+    if _SAYS_NOTHING.match(said):
+        return False
+    return not (
+        len(said) <= SHORTEST
+        and _ASKS.search(said)
+        and not any(me in said for me in _ME)
+    )
 
 
 _INSTRUCTIONS = """\
