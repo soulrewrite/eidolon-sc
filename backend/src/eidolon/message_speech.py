@@ -24,7 +24,7 @@ import hashlib
 import json
 import logging
 from collections import OrderedDict
-from collections.abc import Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 
 import httpx
@@ -161,15 +161,18 @@ class MessageSpeech:
         """Where what is at `path` in the bucket is heard from."""
         return f"{self._assets_url}/{path}"
 
-    async def keep(self, character_id: str, ja: str, name: str) -> str | None:
-        """Make a copy of the segment's speech at `name`, which nothing else changes, and
-        return where it is heard from (fork: a favorite keeps the take it was made of,
-        though the segment is said again); None if it cannot be voiced, put, or copied."""
+    async def keep(
+        self, character_id: str, ja: str, name: str, refresh: bool = False
+    ) -> str | None:
+        """Make a copy of the segment's speech at `name` and return where it is heard from;
+        `refresh` replaces a copy that is there already, so that a take voiced again (fork:
+        「重新生成」) is the one a favorite plays next time. None if it cannot be voiced,
+        put, or copied."""
         path = await self.ensure(character_id, ja)
         if path is None:
             return None
         try:
-            if not await self._bucket.exists(name):
+            if refresh or not await self._bucket.exists(name):
                 audio = await self._bucket.get(path)
                 if audio is None:
                     return None
@@ -298,7 +301,10 @@ class _CouldNotVoice(RuntimeError):
 
 
 def add_message_speech_routes(
-    app: FastAPI, store: Store, speech: MessageSpeech
+    app: FastAPI,
+    store: Store,
+    speech: MessageSpeech,
+    on_revoiced: Callable[[str, str, str], Awaitable[None]] | None = None,
 ) -> None:
     """`/api/messages/{id}/speech?segment={n}`: where segment `n` of her reply is heard
     from, as `{"url": ...}` in the bucket, voiced first if the bucket does not have it
@@ -333,7 +339,7 @@ def add_message_speech_routes(
         found = store.message_segments(message_id, user_id)
         if found is None:
             raise HTTPException(404, NOT_FOUND)
-        return await _again(found, segment)
+        return await _again(found, segment, user_id)
 
     @app.post("/api/reach-outs/{reach_out_id}/speech/again")
     async def reach_out_speech_again(
@@ -342,10 +348,11 @@ def add_message_speech_routes(
         found = store.reach_out_segments(reach_out_id, user_id)
         if found is None:
             raise HTTPException(404, NOT_FOUND)
-        return await _again(found, segment)
+        return await _again(found, segment, user_id)
 
-    async def _again(found: tuple[str, str], segment: int) -> dict:
-        """What segment `segment` of `found` now sounds like, voiced afresh."""
+    async def _again(found: tuple[str, str], segment: int, user_id: str) -> dict:
+        """What segment `segment` of `found` now sounds like, voiced afresh; a favorite of
+        this user's holding the same line is refreshed with it (fork)."""
         character_id, segments_json = found
         segments = json.loads(segments_json or "[]")
         if not 0 <= segment < len(segments):
@@ -356,6 +363,11 @@ def add_message_speech_routes(
         url = await speech.again(character_id, ja)
         if url is None:
             raise HTTPException(503, UNAVAILABLE)
+        if on_revoiced is not None:
+            try:
+                await on_revoiced(user_id, character_id, ja)
+            except Exception:  # 收藏没换新不该让「重新生成」本身失败
+                log.warning("refreshing the kept copy of a segment failed", exc_info=True)
         return {"url": url}
 
     async def _where(found: tuple[str, str], segment: int) -> dict:

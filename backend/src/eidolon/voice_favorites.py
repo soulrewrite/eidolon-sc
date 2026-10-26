@@ -120,6 +120,20 @@ class VoiceFavorites:
             self._db.execute("DELETE FROM voice_favorites WHERE id = ?", (favorite_id,))
         return row["path"]
 
+    async def refresh(
+        self, user_id: str, character_id: str, ja: str, speech: MessageSpeech
+    ) -> None:
+        """Copy the take she just voiced again over the kept copy of every favorite of this
+        user's for that line (fork): 「重新生成」之后，收藏里听到的就是新那一版。"""
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT path FROM voice_favorites"
+                " WHERE user_id = ? AND character_id = ? AND ja = ?",
+                (user_id, character_id, ja),
+            ).fetchall()
+        for row in rows:
+            await speech.keep(character_id, ja, row["path"], refresh=True)
+
     def listed(self, user_id: str) -> list[Favorite]:
         """The user's kept lines, newest first."""
         with self._lock:
@@ -182,7 +196,7 @@ def add_voice_favorite_routes(
         kept = favorites.add(
             user_id, character_id, f"{character_id}/{ja}", ja, zh
         )
-        url = await speech.keep(character_id, ja, kept.path)
+        url = await speech.keep(character_id, ja, kept.path, refresh=True)
         if url is None:
             favorites.remove(user_id, kept.id)
             raise HTTPException(503, "这一句现在存不下来，稍后再试")

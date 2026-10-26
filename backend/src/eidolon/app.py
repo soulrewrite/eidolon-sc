@@ -375,12 +375,17 @@ def create_app(backend: Backend) -> FastAPI:
     add_gift_routes(app, backend)
     add_photo_routes(app, backend)
     if backend.message_speech is not None:
-        add_message_speech_routes(app, backend.store, backend.message_speech)
-        if backend.voice_favorites is not None:
-            add_voice_favorite_routes(
-                app, backend.store, backend.voice_favorites, backend.message_speech,
-                backend.characters,
-            )
+        speech = backend.message_speech
+        favorites = backend.voice_favorites
+
+        async def on_revoiced(user_id: str, character_id: str, ja: str) -> None:
+            """「重新生成」之后，这条句子在这个用户名下的收藏跟着换成新那一版。"""
+            if favorites is not None:
+                await favorites.refresh(user_id, character_id, ja, speech)
+
+        add_message_speech_routes(app, backend.store, speech, on_revoiced=on_revoiced)
+        if favorites is not None:
+            add_voice_favorite_routes(app, backend.store, favorites, speech, backend.characters)
     add_sponsor_routes(app, backend)
     add_data_package_routes(app, backend)
     add_stats_routes(app, backend)

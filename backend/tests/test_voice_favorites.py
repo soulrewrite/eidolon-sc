@@ -28,10 +28,14 @@ class FakeSpeech:
 
     def __init__(self) -> None:
         self.kept: dict[str, tuple[str, str]] = {}
+        self.refreshed: list[str] = []
         self.dropped: list[str] = []
 
-    async def keep(self, character_id: str, ja: str, name: str) -> str:
-        self.kept[name] = (character_id, ja)
+    async def keep(self, character_id: str, ja: str, name: str, refresh: bool = False) -> str:
+        """`refresh` 覆盖已有那份（「重新生成」之后收藏跟着换新）。"""
+        if refresh or name not in self.kept:
+            self.kept[name] = (character_id, ja)
+            self.refreshed.append(name)
         return f"{ASSETS}/{name}"
 
     def heard_at(self, path: str) -> str:
@@ -108,6 +112,20 @@ def test_the_same_take_of_the_same_line_is_kept_once(world):
 
     assert again["id"] == first["id"]
     assert len(client.get("/api/voice-favorites").json()) == 1
+
+
+async def test_voicing_it_again_refreshes_what_the_favorite_keeps(world):
+    """「重新生成」之后，收藏里那份换成新的一版：再进统计页听到的就是新那版。"""
+    client, _, favorites, speech, cast, user, reply = world
+    kept = client.post("/api/voice-favorites", json=_body(reply.id)).json()
+    path = kept["url"].removeprefix(f"{ASSETS}/")
+
+    await favorites.refresh(user.id, "mano", "ほわっ、かわいい", speech)
+
+    assert speech.refreshed[-1] == path
+    # 收藏一次就写一份；再收藏同一句是覆盖成最新那一版，不是又多一条
+    assert client.post("/api/voice-favorites", json=_body(reply.id)).json()["id"] == kept["id"]
+    assert len(speech.kept) == 1
 
 
 def test_a_segment_of_her_saying_nothing_is_not_a_favorite(world):
