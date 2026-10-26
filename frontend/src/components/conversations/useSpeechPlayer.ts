@@ -9,8 +9,8 @@ import { musicPlayback } from "@/lib/musicPlayer";
 export type SpeechPlay = {
   /** 现在是什么样子，一句话一条。 */
   state: (ref: SpeechRef) => "idle" | "asking" | "playing" | "failed";
-  /** 放这句话；正在放同一句就停下来。 */
-  toggle: (ref: SpeechRef) => void;
+  /** 放这句话，接着把 `following` 里的几句依次放完；正在放同一句就停下来。 */
+  toggle: (ref: SpeechRef, following?: SpeechRef[]) => void;
   /** 这一句重新合成一遍再放：合成每次都不一样，听着破音就重摇一次。 */
   again: (ref: SpeechRef) => void;
   /** 事先把这几句取到内存里：她刚说完的那条，等用户决定要点时，音频已经在手上了。 */
@@ -43,6 +43,8 @@ export function useSpeechPlayer(): SpeechPlay {
   const held = useRef(new Map<string, string>());
   /** 音频元素现在装的是哪个地址，免得同一句再点一次又去设一遍 src（那会重新拉一遍）。 */
   const loaded = useRef<string | null>(null);
+  /** 这一条回复里还没放的几句：一句放完自动接下一句，不用再点。 */
+  const remaining = useRef<SpeechRef[]>([]);
   const failing = useRef<number | null>(null);
 
   // 离开页面时别留一个还在响的元素；`audio` 是这一页自己的，不是全站的。
@@ -60,15 +62,44 @@ export function useSpeechPlayer(): SpeechPlay {
 
   const stop = useCallback(() => {
     audio.current?.pause();
+    remaining.current = [];
     setPlaying(null);
   }, []);
 
+  const playRef = useRef<(key: string, url: string) => Promise<void>>(async () => {});
+  const failRef = useRef<(key: string) => void>(() => {});
   const fail = useCallback((key: string) => {
     setAsking((now) => (now === key ? null : now));
     setFailed(key);
     if (failing.current !== null) window.clearTimeout(failing.current);
     failing.current = window.setTimeout(() => setFailed((now) => (now === key ? null : now)), 2000);
   }, []);
+  failRef.current = fail;
+
+  /** 接着放这一条回复里剩下的下一句；没有了就停。 */
+  const advance = useRef<() => void>(() => {});
+  advance.current = () => {
+    const next = remaining.current.shift();
+    if (next === undefined) return;
+    const key = keyOf(next);
+    void (async () => {
+      const asked = known.current.get(key);
+      if (asked !== undefined) {
+        await playRef.current(key, held.current.get(key) ?? asked);
+        return;
+      }
+      setAsking((now) => now ?? key);
+      try {
+        const url = await speechUrl(next);
+        known.current.set(key, url);
+        await playRef.current(key, url);
+      } catch {
+        failRef.current(key);
+      } finally {
+        setAsking((now) => (now === key ? null : now));
+      }
+    })().catch(() => {});
+  };
 
   /** 把 `url` 放起来；地址变了才换源（重摇就是换地址），同一句重放只是从头再放。 */
   const play = useCallback(async (key: string, url: string) => {
@@ -79,20 +110,26 @@ export function useSpeechPlayer(): SpeechPlay {
       loaded.current = url;
     }
     element.currentTime = 0;
-    element.onended = () => setPlaying((now) => (now === key ? null : now));
+    element.onended = () => {
+      setPlaying((now) => (now === key ? null : now));
+      advance.current();
+    };
     // 她开口说话就把歌曲停下：两个声音叠在一起听不清
     musicPlayback.stop();
     await element.play();
     setPlaying(key);
   }, []);
+  playRef.current = play;
 
   const toggle = useCallback(
-    (ref: SpeechRef) => {
+    (ref: SpeechRef, following: SpeechRef[] = []) => {
       const key = keyOf(ref);
       if (playing === key) {
         stop();
         return;
       }
+      // 这一条回复剩下的几句：放完这句自动接着放，不用一句句点。
+      remaining.current = [...following];
       // 正等着同一句：再点一下就是不等了。
       if (asking === key) {
         setAsking(null);

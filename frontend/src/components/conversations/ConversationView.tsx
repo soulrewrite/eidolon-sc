@@ -842,7 +842,16 @@ function Bubbled({
                           <SpeechKey
                             refId={refOf(i)}
                             state={speech.state(refOf(i))}
-                            onClick={() => speech.toggle(refOf(i))}
+                            onClick={() =>
+                              speech.toggle(
+                                refOf(i),
+                                // 这一条回复剩下的几句：点一次就一路放下去。
+                                entry.segments
+                                  .map((later, n) => ({ later, n }))
+                                  .filter(({ later, n }) => n > i && later.ja.trim() !== "")
+                                  .map(({ n }) => refOf(n)),
+                              )
+                            }
                             onAgain={() => speech.again(refOf(i))}
                           />
                           {/* 正在放这一句时，播放键**正下方**浮出一个 ☆：绝对定位、不进流，
