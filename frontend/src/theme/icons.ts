@@ -114,6 +114,7 @@ export {
   Music2 as SpeechOffIcon,
   Pause as SpeechPauseIcon,
   Play as SpeechPlayIcon,
+  Star as FavoriteIcon,
 } from "lucide-react";
 
 // 导航栏底部（电脑）的 GitHub 仓库链接；品牌标志 Lucide 不收，是 The Library Icon Rule 的例外。

@@ -138,6 +138,13 @@ class MessageSpeech:
         """Where the segment's speech is heard from: the bucket's address of it, voiced
         and put first if the bucket does not have it yet; None if she has no voice to say
         it in, or it cannot be voiced or put (said why in the log)."""
+        path = await self.ensure(character_id, ja)
+        return self.heard_at(path) if path is not None else None
+
+    async def ensure(self, character_id: str, ja: str) -> str | None:
+        """Where in the bucket the segment's speech is, voiced and put first if the bucket
+        does not have it yet; None if she has no voice to say it in, or it cannot be
+        voiced or put (said why in the log)."""
         spoken = self._spoken(character_id, ja)
         if spoken is None:
             return None
@@ -148,7 +155,36 @@ class MessageSpeech:
         except (S3Error, _CouldNotVoice):
             log.warning("the speech of a segment could not be put", exc_info=True)
             return None
-        return f"{self._assets_url}/{spoken.path}"
+        return spoken.path
+
+    def heard_at(self, path: str) -> str:
+        """Where what is at `path` in the bucket is heard from."""
+        return f"{self._assets_url}/{path}"
+
+    async def keep(self, character_id: str, ja: str, name: str) -> str | None:
+        """Make a copy of the segment's speech at `name`, which nothing else changes, and
+        return where it is heard from (fork: a favorite keeps the take it was made of,
+        though the segment is said again); None if it cannot be voiced, put, or copied."""
+        path = await self.ensure(character_id, ja)
+        if path is None:
+            return None
+        try:
+            if not await self._bucket.exists(name):
+                audio = await self._bucket.get(path)
+                if audio is None:
+                    return None
+                await self._bucket.put(name, audio, "audio/mpeg", SPEECH_CACHE)
+            return self.heard_at(name)
+        except S3Error:
+            log.warning("the speech of a segment could not be kept", exc_info=True)
+            return None
+
+    async def drop(self, name: str) -> None:
+        """Delete what is at `name` in the bucket; one it does not have is no error."""
+        try:
+            await self._bucket.delete(name)
+        except S3Error:
+            log.warning("the kept speech of a segment could not be deleted", exc_info=True)
 
     async def _there(self, path: str) -> bool:
         """Whether the bucket has what is at `path`: known if this process put it there,

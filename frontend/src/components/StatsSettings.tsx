@@ -11,11 +11,13 @@ import { SettingsPane } from "@/components/settings/SettingsPane";
 import { Heatmap } from "@/components/stats/Heatmap";
 import { HourChart } from "@/components/stats/HourChart";
 import { ShareButton } from "@/components/stats/ShareButton";
+import { VoiceFavorites } from "@/components/stats/VoiceFavorites";
 import { Button } from "@/components/ui/button";
 import { Empty, EmptyContent, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { copy } from "@/i18n";
 import { getStats, type Character } from "@/lib/api";
+import { unfavoriteVoice, voiceFavorites, type VoiceFavorite } from "@/lib/voiceFavorites";
 import { toFailure, type Failure } from "@/lib/failure";
 import { FIRST_LEVEL } from "@/lib/navShell";
 import { canShare } from "@/lib/shareCard";
@@ -53,6 +55,7 @@ export function StatsSettings() {
   const [failure, setFailure] = useState<Failure | null>(null);
   const [shareFailure, setShareFailure] = useState<Failure | null>(null);
   const { guard, characters, failure: directoryFailure } = useDirectory();
+  const [favorites, setFavorites] = useState<VoiceFavorite[] | null>(null);
 
   useEffect(() => {
     let current = true;
@@ -68,6 +71,18 @@ export function StatsSettings() {
       current = false;
     };
   }, [range]);
+
+  // 收藏的语音和跨度无关：进页面读一次，取消一条就在本地去掉，不重读整页。
+  useEffect(() => {
+    let live = true;
+    voiceFavorites().then(
+      (list) => live && setFavorites(list),
+      () => live && setFavorites([]),
+    );
+    return () => {
+      live = false;
+    };
+  }, []);
 
   // 排行和礼物要角色的名字和颜色：角色还没到时整页当作读取中，免得那几行晚一步冒出来、页面跳一下。
   if (!stats || characters === null) {
@@ -147,6 +162,18 @@ export function StatsSettings() {
               <Figure label={t.charactersComplete} value={stats.achievements.complete} unit={t.charactersUnit} />
             </dl>
           </section>
+        )}
+        {favorites !== null && (
+          <VoiceFavorites
+            favorites={favorites}
+            characters={characters}
+            onRemove={(id) => {
+              void unfavoriteVoice(id).then(
+                () => setFavorites((current) => current?.filter((f) => f.id !== id) ?? []),
+                () => {},
+              );
+            }}
+          />
         )}
         <div className="flex flex-col gap-4">
           <Tabs

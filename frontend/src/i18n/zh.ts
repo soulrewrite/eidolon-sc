@@ -206,8 +206,14 @@ export const zh = {
     speech: "听这一句",
     speechStop: "停下",
     speechFailed: "这句放不出来",
-    /** 播放键的右键（长按）动作：合成每次都不一样，听着破音就重摇一次。 */
-    speechAgain: "右键重新生成这一句",
+    /** 播放键的右键（长按）菜单：合成每次都不一样，听着破音就重摇一次；收藏的那句进统计页。 */
+    speechMenu: "这一句",
+    speechAgain: "重新生成这一句",
+    speechKeep: "收藏这一句",
+    speechKept: "已收藏",
+    /** 播放中出现在这一句旁边的 ☆。 */
+    speechFavorite: "收藏这一句",
+    speechUnfavorite: "取消收藏",
     speechOn: {
       on: "打开消息语音",
       off: "关掉消息语音",
@@ -658,6 +664,16 @@ export const zh = {
       likedGiven: "她喜欢的",
       times: (count: number) => `${count} 次`,
       timesUnit: "次",
+      /** 收藏的语音（fork）：统计页的一节，按角色分组。 */
+      favorites: {
+        title: "收藏的语音",
+        hint: "在聊天里长按或右键那句的音符，或者她说话时点旁边的 ☆。",
+        count: (n: number) => `${n} 句`,
+        play: "播放",
+        stop: "停下",
+        remove: "取消收藏",
+        failed: "这句现在放不出来",
+      },
       /** 分享图（GLOSSARY.md「分享图」）。 */
       share: {
         button: "分享",

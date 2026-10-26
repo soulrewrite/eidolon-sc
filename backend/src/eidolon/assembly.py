@@ -54,6 +54,7 @@ from eidolon.letter_envelopes import Envelopes
 from eidolon.live_config import LiveConfig, Reach
 from eidolon.memory import Memories
 from eidolon.message_speech import MessageSpeech
+from eidolon.voice_favorites import VoiceFavorites
 from eidolon.price_catalog import Catalog
 from eidolon.prices import Prices
 from eidolon.own_keys import LLMService, OwnImageService, OwnKeys, ProviderLLMService
@@ -135,6 +136,7 @@ class Backend:
     letters: Letters
     """Has characters reach out to users once their time comes."""
     message_speech: MessageSpeech | None = None
+    voice_favorites: VoiceFavorites | None = None
     """What she says in a reply, voiced for the browser to play a segment at a time; None
     where the deployer has no stands' bucket to keep it in, or no Fish Audio key to voice
     it with, the text then being all there is."""
@@ -391,6 +393,8 @@ def build(
     # needs somewhere to keep the audio (the stands' bucket) and a voice to say it in, and
     # is off without either, the text then being all there is.
     message_speech: MessageSpeech | None = None
+    voice_favorites = VoiceFavorites(settings.database_path, clock)
+    closers.append(voice_favorites.close)
     if settings.stand_assets_url:
         try:
             message_speech = MessageSpeech(
@@ -435,6 +439,7 @@ def build(
         reach_outs=reach_outs,
         letters=letters,
         message_speech=message_speech,
+        voice_favorites=voice_favorites,
         world=world,
         _closers=closers,
     )

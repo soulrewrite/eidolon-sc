@@ -1,14 +1,14 @@
 {
   "schemaVersion": "mimosa-hook-status/v1",
-  "recordedAt": "2026-10-25T13:45:51.856Z",
+  "recordedAt": "2026-10-26T10:59:56.993Z",
   "sessionId": "session_ac9d2f1ecc8e3421cf611d399f3148e9",
   "event": "PostToolUse",
   "toolName": "Write",
-  "file": "C:\\Users\\skya\\.zcode\\workspace\\default\\eidolon-deploy\\patch_frontend.py",
-  "outcome": "inconclusive",
-  "coverage": "partial",
+  "file": "src/components/stats/VoiceFavorites.tsx",
+  "outcome": "clear",
+  "coverage": "complete",
   "findingCount": 0,
-  "durationMs": 22,
+  "durationMs": 30,
   "hostState": "hook_complete",
   "reportHint": ".mimosa/reports/"
 }

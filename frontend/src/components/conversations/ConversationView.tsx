@@ -45,6 +45,7 @@ import type { Failure } from "@/lib/failure";
 import { giftsHref } from "@/lib/gifts";
 import { isLive, NOT_OPEN, type LiveConversation, type Trophy } from "@/lib/liveConversation";
 import { speechSwitchedOn, switchSpeech, type SpeechRef } from "@/lib/messageSpeech";
+import { favoriteVoice, unfavoriteVoice } from "@/lib/voiceFavorites";
 import { linesOf, type Line } from "@/lib/messageLines";
 import { pastDay } from "@/lib/pastConversations";
 import { photosUsedUpText } from "@/lib/photoFailure";
@@ -67,6 +68,7 @@ import {
   SpeechOnIcon,
   SpeechPauseIcon,
   SpeechPlayIcon,
+  FavoriteIcon,
 } from "@/theme/icons";
 import { Ja } from "@/theme/Ja";
 
@@ -836,11 +838,18 @@ function Bubbled({
                     <div key={i} className="flex items-start gap-1.5">
                       {/* 播放键：只在开关开着、这一句真的有日语的时候出现，读屏器念「听这一句」。 */}
                       {speechOn && segment.ja.trim() !== "" && (
-                        <SpeechKey
-                          state={speech.state(refOf(i))}
-                          onClick={() => speech.toggle(refOf(i))}
-                          onAgain={() => speech.again(refOf(i))}
-                        />
+                        <span className="flex items-center gap-0.5">
+                          <SpeechKey
+                            refId={refOf(i)}
+                            state={speech.state(refOf(i))}
+                            onClick={() => speech.toggle(refOf(i))}
+                            onAgain={() => speech.again(refOf(i))}
+                          />
+                          {/* 正在放这一句时，旁边浮出一个 ☆：听到想留的那句，当场就能收藏。 */}
+                          {speech.state(refOf(i)) === "playing" && (
+                            <FavoriteKey refId={refOf(i)} />
+                          )}
+                        </span>
                       )}
                       <div className="flex min-w-0 flex-col gap-0.5">
                         <p className="text-japanese-line">
@@ -865,43 +874,140 @@ function Bubbled({
  * 它比气泡的字小一号，不抢她的话；手机上按不到 44px 也不碍事，旁边整句都能点（见下面 Bubble 的 onClick）。
  * 右键（或长按）重新合成这一句：合成每次都不一样，听着破音就重摇一次。 */
 function SpeechKey({
+  refId,
   state,
   onClick,
   onAgain,
 }: {
+  refId: SpeechRef;
   state: "idle" | "asking" | "playing" | "failed";
   onClick: () => void;
   onAgain: () => void;
 }) {
   const Icon = state === "playing" ? SpeechPauseIcon : SpeechPlayIcon;
+  const [menu, setMenu] = useState(false);
+  const { kept, toggle } = useVoiceFavorite(refId);
+
+  // 菜单点别处、按 Esc、或者这一句不再放的时候都收起来。
+  useEffect(() => {
+    if (!menu) return;
+    const close = () => setMenu(false);
+    const escape = (event: KeyboardEvent) => event.key === "Escape" && setMenu(false);
+    window.addEventListener("pointerdown", close);
+    window.addEventListener("keydown", escape);
+    return () => {
+      window.removeEventListener("pointerdown", close);
+      window.removeEventListener("keydown", escape);
+    };
+  }, [menu]);
+
+  return (
+    <span className="relative inline-flex shrink-0">
+      <Button
+        variant="ghost"
+        size="icon-xs"
+        className={cn(
+          // 按压感：悬停浮一层底、按下去缩一下再回弹，正在放的时候整颗是实心的。
+          "mt-px shrink-0 text-muted-foreground touch-manipulation",
+          "transition-[color,background-color,transform] duration-150 ease-out",
+          "hover:bg-accent hover:text-foreground",
+          "motion-safe:active:scale-90 active:bg-accent active:duration-75",
+          state === "playing" && "bg-accent text-foreground",
+        )}
+        aria-label={state === "failed" ? t.speechFailed : state === "playing" ? t.speechStop : t.speech}
+        aria-busy={state === "asking"}
+        title={t.speechMenu}
+        onClick={onClick}
+        onContextMenu={(event) => {
+          // 长按（手机上）/ 右键（电脑上）开一个小菜单，代替以前「按了就直接重新生成」：
+          // 合成会覆盖那一版，误触就找不回来了。
+          event.preventDefault();
+          event.stopPropagation();
+          setMenu(true);
+        }}
+      >
+        {state === "asking" ? (
+          <Spinner />
+        ) : (
+          <Icon aria-hidden className={cn(state === "playing" && "fill-current")} />
+        )}
+      </Button>
+      {menu && (
+        <span
+          role="menu"
+          className="absolute top-full left-0 z-30 mt-1 flex min-w-36 flex-col rounded-md border bg-popover p-1 text-popover-foreground shadow-md"
+          onPointerDown={(event) => event.stopPropagation()}
+        >
+          <button
+            type="button"
+            role="menuitem"
+            className="rounded-sm px-2 py-1.5 text-left text-meta hover:bg-accent"
+            onClick={() => {
+              setMenu(false);
+              onAgain();
+            }}
+          >
+            {t.speechAgain}
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className="rounded-sm px-2 py-1.5 text-left text-meta hover:bg-accent"
+            onClick={() => {
+              setMenu(false);
+              void toggle();
+            }}
+          >
+            {kept ? t.speechUnfavorite : t.speechKeep}
+          </button>
+        </span>
+      )}
+    </span>
+  );
+}
+
+/** 播放中出现在这一句旁边的 ☆：点一下收藏，再点一下取消（fork）。 */
+function FavoriteKey({ refId }: { refId: SpeechRef }) {
+  const { kept, toggle } = useVoiceFavorite(refId);
   return (
     <Button
       variant="ghost"
       size="icon-xs"
       className={cn(
-        // 按压感：悬停浮一层底、按下去缩一下再回弹，正在放的时候整颗是实心的。
-        "mt-px shrink-0 text-muted-foreground touch-manipulation",
-        "transition-[color,background-color,transform] duration-150 ease-out",
-        "hover:bg-accent hover:text-foreground",
-        "motion-safe:active:scale-90 active:bg-accent active:duration-75",
-        state === "playing" && "bg-accent text-foreground",
+        "shrink-0 text-muted-foreground transition-[color,transform] duration-150 ease-out",
+        "hover:bg-accent hover:text-foreground motion-safe:active:scale-90",
+        kept && "text-her-mark",
       )}
-      aria-label={state === "failed" ? t.speechFailed : state === "playing" ? t.speechStop : t.speech}
-      aria-busy={state === "asking"}
-      title={t.speechAgain}
-      onClick={onClick}
-      onContextMenu={(event) => {
-        event.preventDefault();
-        onAgain();
-      }}
+      aria-pressed={kept}
+      aria-label={kept ? t.speechUnfavorite : t.speechFavorite}
+      onClick={() => void toggle()}
     >
-      {state === "asking" ? (
-        <Spinner />
-      ) : (
-        <Icon aria-hidden className={cn(state === "playing" && "fill-current")} />
-      )}
+      <FavoriteIcon aria-hidden className={cn("size-3.5", kept && "fill-current")} />
     </Button>
   );
+}
+
+/** 这一句收没收藏：本页自己记着，收藏/取消都即时反映；失败就保持原样，不打断播放。 */
+function useVoiceFavorite(ref: SpeechRef) {
+  const [saved, setSaved] = useState<number | null>(null);
+  const [busy, setBusy] = useState(false);
+  const { kind, id, segment } = ref;
+  const toggle = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      if (saved === null) setSaved((await favoriteVoice({ kind, id, segment })).id);
+      else {
+        await unfavoriteVoice(saved);
+        setSaved(null);
+      }
+    } catch {
+      // 收藏失败（网络、上限、这一句没有语音）就保持原样；播放照旧。
+    } finally {
+      setBusy(false);
+    }
+  };
+  return { kept: saved !== null, toggle };
 }
 
 /** 气泡旁的时刻，写成 8:49（和列表里今天的时间一样）。 */

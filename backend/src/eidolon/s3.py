@@ -156,6 +156,11 @@ class Bucket:
         """Delete an object; one the bucket does not have is no error."""
         await self._send("DELETE", self._url(key))
 
+    async def get(self, key: str) -> bytes | None:
+        """The object at `key`, or None if the bucket does not have it."""
+        response = await self._send("GET", self._url(key), allowed={404})
+        return response.content if response.status_code == 200 else None
+
     async def exists(self, key: str) -> bool:
         """Whether the bucket has the object at `key`, asked for in one request rather
         than by listing; one it does not have is no error."""
