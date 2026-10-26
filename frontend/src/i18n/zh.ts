@@ -667,12 +667,18 @@ export const zh = {
       /** 收藏的语音（fork）：统计页的一节，按角色分组。 */
       favorites: {
         title: "收藏的语音",
-        hint: "在聊天里长按或右键那句的音符，或者她说话时点旁边的 ☆。",
+        hint: "在聊天里长按或右键那句的音符，或者她说话时点纸边上的 ☆。",
         count: (n: number) => `${n} 句`,
         play: "播放",
         stop: "停下",
         remove: "取消收藏",
         failed: "这句现在放不出来",
+        expand: (name: string, n: number) => `${name}的收藏，${n} 句`,
+        collapse: "收起",
+        /** 顶部的日期筛选。 */
+        ranges: { all: "全部", week: "近 7 天", month: "近 30 天" },
+        rangeLabel: "按时间筛选",
+        emptyRange: "这段时间里还没有收藏",
       },
       /** 分享图（GLOSSARY.md「分享图」）。 */
       share: {

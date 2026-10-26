@@ -838,14 +838,15 @@ function Bubbled({
                     <div key={i} className="flex items-start gap-1.5">
                       {/* 播放键：只在开关开着、这一句真的有日语的时候出现，读屏器念「听这一句」。 */}
                       {speechOn && segment.ja.trim() !== "" && (
-                        <span className="flex items-center gap-0.5">
+                        <span className="relative inline-flex shrink-0">
                           <SpeechKey
                             refId={refOf(i)}
                             state={speech.state(refOf(i))}
                             onClick={() => speech.toggle(refOf(i))}
                             onAgain={() => speech.again(refOf(i))}
                           />
-                          {/* 正在放这一句时，旁边浮出一个 ☆：听到想留的那句，当场就能收藏。 */}
+                          {/* 正在放这一句时，播放键**正下方**浮出一个 ☆：绝对定位、不进流，
+                              所以这一句的文字和气泡宽度一格都不会挪；那块在字幕左边，本来是空的。 */}
                           {speech.state(refOf(i)) === "playing" && (
                             <FavoriteKey refId={refOf(i)} />
                           )}
@@ -966,24 +967,26 @@ function SpeechKey({
   );
 }
 
-/** 播放中出现在这一句旁边的 ☆：点一下收藏，再点一下取消（fork）。 */
+/** 播放中浮在气泡左侧纸边上的 ☆：点一下收藏，再点一下取消（fork）。
+ * 绝对定位，不进流——它出现和消失都不会推动这一句的文字或气泡宽度。 */
 function FavoriteKey({ refId }: { refId: SpeechRef }) {
   const { kept, toggle } = useVoiceFavorite(refId);
   return (
-    <Button
-      variant="ghost"
-      size="icon-xs"
+    <button
+      type="button"
       className={cn(
-        "shrink-0 text-muted-foreground transition-[color,transform] duration-150 ease-out",
-        "hover:bg-accent hover:text-foreground motion-safe:active:scale-90",
+        // 挂在播放键下面（`top-full`），在字幕左侧那块空位里；不进流，出现消失都不推字。
+        "absolute top-full left-0 z-10 flex size-4 items-center justify-center rounded-full",
+        "text-muted-foreground transition-colors duration-150 ease-out",
+        "hover:bg-accent hover:text-foreground",
         kept && "text-her-mark",
       )}
       aria-pressed={kept}
       aria-label={kept ? t.speechUnfavorite : t.speechFavorite}
       onClick={() => void toggle()}
     >
-      <FavoriteIcon aria-hidden className={cn("size-3.5", kept && "fill-current")} />
-    </Button>
+      <FavoriteIcon aria-hidden className={cn("size-3", kept && "fill-current")} />
+    </button>
   );
 }
 
