@@ -95,9 +95,9 @@ async def test_small_talk_retrieves_nothing(
     system = await system_prompt(client, llm, "早上好")
 
     assert jev.asked == [("櫻木真乃", "早上好")]
-    # The judge model answering at once, nothing was looked up before it did: embedded only
-    # to show the background model the memories nearest the turn, after it.
-    assert embedder.queries == ["早上好"]
+    # (fork) 只是打招呼：连给后台模型看记忆的那次嵌入也省了（`memory.worth_extracting`），
+    # 整轮一次嵌入都没有。
+    assert embedder.queries == []
     assert reranker.calls == []
     assert "# 回忆与资料" not in system
     assert PARK_LINE not in system

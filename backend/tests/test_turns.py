@@ -156,13 +156,13 @@ async def test_a_turn_told_to_stop_is_recorded_with_only_its_complete_segments(t
     llm = FakeLLM(["<ja>ほわっ</ja><zh>哇</zh><ja>今日", "も</ja>", HANG])
 
     events = await turns.take(
-        llm, "早上好", stop_after=0,
+        llm, "我养了一只猫", stop_after=0,
         background_llm=memory, retrieval_judge=FakeJudge(), embedder=FakeEmbedder(), reranker=FakeReranker(),
     )
 
     assert events[-1]["type"] == "done"
     assert (events[-1]["message"]["ja"], events[-1]["message"]["zh"]) == ("ほわっ", "哇")
-    assert turns.record() == [("user", "早上好", None), ("character", None, "ほわっ")]
+    assert turns.record() == [("user", "我养了一只猫", None), ("character", None, "ほわっ")]
     assert len(memory.prompts) == 1  # what the user revealed is written down as ever
 
 

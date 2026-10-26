@@ -226,6 +226,7 @@ def test_worth_extracting_asks_about_what_says_something():
     assert not memory.worth_extracting("你好")
     assert not memory.worth_extracting("晚安！")
     assert not memory.worth_extracting("好的。")
+    assert not memory.worth_extracting("おはよう")
     # 问她的短问句：提取提示词本来就不记「制作人向偶像提的问题」
     assert not memory.worth_extracting("好玩吗")
     assert not memory.worth_extracting("照片呢？")

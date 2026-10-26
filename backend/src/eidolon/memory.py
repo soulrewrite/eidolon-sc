@@ -762,11 +762,13 @@ about the producer (see `worth_extracting`)."""
 
 _SAYS_NOTHING = re.compile(
     r"^(嗯+|啊+|哦+|噢+|哈+|呵+|嘿+|唔+|呃+|好的?|好吧|行|可以|对|是的?|没错|谢谢|多谢|"
-    r"晚安|早安|早上好|晚上好|午安|你好|在吗|在|OK|ok|www+|草|笑|睡了|拜拜|再见)"
+    r"晚安|早安|早上好|晚上好|午安|你好|在吗|在|OK|ok|www+|草|笑|睡了|拜拜|再见|"
+    r"おはよう|おやすみ|こんにちは|こんばんは|ありがとう|ごめん|うん|はい|いいえ|そう|なるほど)"
     r"[。！!～~…\.\s]*$",
     re.IGNORECASE,
 )
-"""A turn that is nothing but a greeting, a laugh or a nod."""
+"""A turn that is nothing but a greeting, a laugh or a nod, in either language she is
+spoken to in."""
 
 _ASKS = re.compile(r"[？?]\s*$|[吗呢嘛]\s*$")
 """A turn that asks her something."""

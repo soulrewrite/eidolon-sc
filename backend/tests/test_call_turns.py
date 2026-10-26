@@ -348,7 +348,7 @@ async def test_an_interruption_stops_the_reply_which_is_recorded_with_its_comple
     memory = FakeBackgroundLLM()
 
     spoken_text, messages = await mano_call.run(
-        FakeLLM(INTERRUPTED_REPLY, delay=0.3), [spoken("早上好"), *INTERRUPTING],
+        FakeLLM(INTERRUPTED_REPLY, delay=0.3), [spoken("我养了一只猫"), *INTERRUPTING],
         memory=memory, limits=CallLimits(turns=1),
     )
     messages = without_emotions(messages)
@@ -357,7 +357,7 @@ async def test_an_interruption_stops_the_reply_which_is_recorded_with_its_comple
     assert kinds(messages) == ["user", "done", "ended"]  # it counts as a turn
     assert (messages[-2]["message"]["ja"], messages[-2]["message"]["zh"]) == ("ほわっ", "哇")
     assert await mano_call.record() == [
-        ("user", "早上好", None, None), ("character", None, "ほわっ", "哇"),
+        ("user", "我养了一只猫", None, None), ("character", None, "ほわっ", "哇"),
     ]
     assert len(memory.prompts) == 1
 
@@ -412,16 +412,17 @@ async def test_what_is_said_before_the_character_speaks_joins_the_turn(mano_call
 
     _, messages = await mano_call.run(
         llm,
-        [spoken("早上好"), SleepFrame(0.3), InterruptionFrame(), SleepFrame(0.1), spoken("在吗")],
+        [spoken("我养了一只猫"), SleepFrame(0.3), InterruptionFrame(), SleepFrame(0.1),
+         spoken("它叫小白")],
         memory=memory,
     )
     messages = without_emotions(messages)
 
-    assert said(messages) == ["早上好", "早上好\n在吗"]
+    assert said(messages) == ["我养了一只猫", "我养了一只猫\n它叫小白"]
     assert kinds(messages) == ["user", "user", "done"]
-    assert llm.prompts[-1][-1].content == "早上好\n在吗"
+    assert llm.prompts[-1][-1].content == "我养了一只猫\n它叫小白"
     assert await mano_call.record() == [
-        ("user", "早上好\n在吗", None, None),
+        ("user", "我养了一只猫\n它叫小白", None, None),
         ("character", None, "ほわっ、おはようございます！今日も", "哇，早上好！今天也"),
     ]
     assert len(memory.prompts) == 1  # the reply dropped was not written down
