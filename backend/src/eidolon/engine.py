@@ -117,6 +117,7 @@ from eidolon.affinity import (
     affinity_prompt,
     ends,
     hurt,
+    shown_with_couple,
     warns,
 )
 from eidolon.affinity_judge import AffinityJudge
@@ -941,8 +942,18 @@ class ConversationEngine:
             )
         if photo_asked and photo_asked.used_up_until is not None:
             yield PhotosUsedUp(photo_asked.used_up_until.isoformat())
+        # fork（情侣）：回合结束时也要带上「恋人」这层名字，否则页面一刷新是恋人、说完一句
+        # 就变回亲密——标签来回跳，就是这么来的。
+        couple_since = (
+            self._affinities.couple_since(conversation.user_id, conversation.character_id)
+            if affinity is not None and self._affinities is not None
+            else None
+        )
         yield TurnDone(
-            reply.without_cues(), affinity and affinity.shown(), ended and ended.shown(), rewarded
+            reply.without_cues(),
+            affinity and shown_with_couple(affinity, couple_since),
+            ended and ended.shown(),
+            rewarded,
         )
 
     async def reach_out(

@@ -244,6 +244,32 @@ class Status:
         return {"tier": self.tier, "cooldown_until": until and until.isoformat()}
 
 
+COUPLE_NAME = "恋人"
+"""(fork) What the top of the top tier is called once she has accepted his confession."""
+
+COUPLE_NOTE = "你们是恋人：她会更直接地说想念，也更常主动找你。"
+"""(fork) What the badge's note says of that stage."""
+
+
+def shown_with_couple(
+    status: Status, since: datetime | None
+) -> dict[str, str | None]:
+    """What the browser is told of `status`, and (fork) — while they are lovers and she is
+    still in the top tier — since when, and what that stage is called.
+
+    The one place those two words are written: whoever tells the browser of her affinity
+    (the endpoint, a finished turn, a gift) goes through here, so the badge cannot read
+    「恋人」 on the page and 「亲密」 after a turn, as it did when only the endpoint did."""
+    shown = status.shown()
+    if since is None or status.tier != "intimate":
+        return shown
+    return shown | {
+        "couple_since": since.isoformat(),
+        "tier_label": COUPLE_NAME,
+        "tier_note": COUPLE_NOTE,
+    }
+
+
 _IN_HER_OWN_WAY = "请按你自己的性格和口吻表现出来。"
 
 _TIER_PROMPTS: dict[Tier, str] = {

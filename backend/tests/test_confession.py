@@ -47,6 +47,11 @@ def prompts_of(llm: FakeLLM) -> list[str]:
     return ["\n".join(m.content for m in prompt) for prompt in llm.prompts]
 
 
+def done_of(events: list[dict]) -> dict:
+    """The turn's `done` event, which carries her affinity as the browser is told it."""
+    return next(event for event in events if event["type"] == "done")
+
+
 async def confession_client(
     make_client: ClientFactory, settings: Settings, llm: FakeLLM
 ) -> httpx.AsyncClient:
@@ -77,11 +82,16 @@ async def test_his_confession_at_the_top_is_answered_by_her_and_kept(
     client = await confession_client(make_client, settings, llm)
     conversation = await start_conversation(client)
 
-    await send_turn(client, conversation, CONFESSION)
+    events = await send_turn(client, conversation, CONFESSION)
 
     assert "你们就是恋人了" in prompts_of(llm)[-1]
     assert couple_since(settings.database_path) is not None
-    await send_turn(client, conversation, "早上好呀")
+    # 这一回合的 done 事件就要带上恋人的名字：不然页面刷新是恋人、说完一句变回亲密。
+    done = done_of(events)
+    assert done["affinity"]["tier_label"] == "恋人"
+    assert done["affinity"]["couple_since"]
+    events = await send_turn(client, conversation, "早上好呀")
+    assert done_of(events)["affinity"]["tier_label"] == "恋人"
     told = prompts_of(llm)[-1]
     assert "# 你们的关系" in told and "是恋人" in told
     assert "小声，但比谁都认真" in told  # her couple_note from characters.toml

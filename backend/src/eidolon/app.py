@@ -18,6 +18,7 @@ from starlette.types import Receive, Scope, Send
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from eidolon.admission import CoolingDown
+from eidolon.affinity import shown_with_couple
 from eidolon.assembly import Backend
 from eidolon.call import (
     CallFailed,
@@ -631,16 +632,9 @@ def create_app(backend: Backend) -> FastAPI:
         status = backend.affinities.status(user_id, character_id)
         if status is None:
             return None
-        since = backend.affinities.couple_since(user_id, character_id)
-        if since is None or status.tier != "intimate":
-            return status.shown()
-        # fork（情侣）：只有已经是恋人的那位才看得到这个档名，所以由这里给，不写在前端——
-        # 还没走到这一步的人，前端包里也就没有这两个字。吵到掉出亲密档时，照实显示那一档。
-        return status.shown() | {
-            "couple_since": since.isoformat(),
-            "tier_label": "恋人",
-            "tier_note": "你们是恋人：她会更直接地说想念，也更常主动找你。",
-        }
+        return shown_with_couple(
+            status, backend.affinities.couple_since(user_id, character_id)
+        )
 
     @app.get("/api/memories")
     async def list_memories(user_id: UserId) -> list[dict]:
