@@ -221,6 +221,44 @@ async def test_she_picks_her_unanswered_question_back_up_soon(
     assert "ね、そっちは？" in told
 
 
+async def test_an_unanswered_question_comes_even_after_the_day_is_spent(
+    make_client: ClientFactory, settings: Settings, github: FakeIdentityProvider
+):
+    """(fork) 每天几次管的是「先开口」，不是「把没说完的话说完」：别的角色早上已经把
+    当天的搭话用完了，她问过、他还没答的那句，到点了照样接——不然只能等明天早上，
+    那时 12 小时的新鲜期早过了，接话等于没有发生。"""
+    client, llm, clock, mano = await talked(
+        make_client,
+        ["<ja>ね、そっちは？</ja><zh>那你呢？</zh>"],
+        REPLY,
+        REACH_OUT,
+        REACH_OUT,
+        settings=replace(settings, admins=frozenset({ADMIN}), judge=FAKE_JUDGE),
+        random=FakeRandom(*([0] * 8)),
+    )
+    await send_turn(client, mano, "我家的猫又捣乱了")
+    keep(settings.database_path, "producer", 90, clock.now)
+    last_contact(settings.database_path, mano, clock.now)
+    await allow_a_day(client, github, 1)
+
+    kogane = await start_conversation(client, "kogane")
+    await send_turn(client, kogane, "在吗")
+    keep(settings.database_path, "producer", 90, clock.now, character="kogane")
+    last_contact(settings.database_path, kogane, clock.now - timedelta(hours=3))  # 3 小时：到点
+
+    reach_out = backend_of(client).reach_outs
+    clock.advance(minutes=5)
+    await reach_out.run_due()  # こがね 先开口，用掉当天唯一的额度
+    spent = reached_out(settings.database_path)
+    clock.advance(minutes=40)  # まの 的接话到点：45 分钟
+    await reach_out.run_due()
+
+    assert (spent, reached_out(settings.database_path)) == (1, 2)
+    told = context_of(llm.prompts[-1])
+    assert "还没等到回话" in told
+    assert "ね、そっちは？" in told
+
+
 async def test_where_affinity_is_off_she_comes_as_in_trust(
     make_client: ClientFactory, settings: Settings
 ):

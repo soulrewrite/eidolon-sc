@@ -377,7 +377,14 @@ class ReachOuts:
 
     def _within_the_day(self, due: _Due, now: datetime) -> bool:
         """Whether the user may be reached out to once more today; if not, her time is put
-        off to the next day's morning."""
+        off to the next day's morning.
+
+        (fork) The day's count is for opening a conversation, not for finishing one: picking
+        her unanswered question back up (`due.topic`) is allowed however many the user has
+        had — otherwise a morning's greetings spend the whole day's count before the nudge is
+        due, and the question waits till tomorrow, long past `NUDGE_WITHIN`."""
+        if due.topic is not None:
+            return True
         today = now.astimezone(due.zone).date()
         began = datetime.combine(today, time(), due.zone)
         if self._activity.reached_out_since(due.conversation.user_id, began) < (
