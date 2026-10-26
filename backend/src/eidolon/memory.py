@@ -75,6 +75,10 @@ CANDIDATES = 12
 """How many of the user's memories nearest the turn the reranker is offered."""
 MAX_FOUND = 3
 """The most memories one turn's prompt carries, after reranking."""
+MAX_NOTES = 12
+"""(fork) The most of the standing ways of treating him read out every turn: how to call
+him, what she promised, what he asked her to watch. Older ones fall away rather than
+crowd the prompt; the extractor supersedes them as they change."""
 LATELY = timedelta(days=14)
 """How long ago what she reaches out with as his news may have been written down."""
 MAX_LATEST = 5
@@ -123,6 +127,10 @@ class Memory:
     """The memory that superseded it, None while it holds (ADR-0014)."""
     conversation_id: str | None = None
     """The conversation it was told in; None if that is not known or no longer there."""
+    note: bool = False
+    """(fork) One of how they are together: a standing way of treating him — a name he
+    asked to be called, a promise, a boundary — kept apart from the rest, read in full
+    every turn rather than searched for by what he happens to say."""
 
 
 PackageKey = int | str
@@ -141,6 +149,8 @@ class CarriedMemory:
     superseded_by: PackageKey | None
     conversation_id: str | None
     """The conversation here it was told in, None if it is not here."""
+    note: bool = False
+    """(fork) Whether it is one of the standing ways of treating him (see `Memory.note`)."""
 
 
 def add_carried(db: sqlite3.Connection, user_id: str, carried: Sequence[CarriedMemory]) -> int:
@@ -161,10 +171,10 @@ def add_carried(db: sqlite3.Connection, user_id: str, carried: Sequence[CarriedM
             continue
         cursor = db.execute(
             "INSERT INTO memories"
-            " (user_id, source_character_id, conversation_id, text, created_at)"
-            " VALUES (?, ?, ?, ?, ?)",
+            " (user_id, source_character_id, conversation_id, text, created_at, note)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
             (user_id, memory.source_character_id, memory.conversation_id, memory.text,
-             memory.created_at),
+             memory.created_at, memory.note),
         )
         assert cursor.lastrowid is not None
         ids[memory.key] = cursor.lastrowid
@@ -216,6 +226,8 @@ class Memories:
             columns = {row[1] for row in self._db.execute("PRAGMA table_info(memories)")}
             if "superseded_by" not in columns:  # kept from before superseding: all hold
                 self._db.execute("ALTER TABLE memories ADD COLUMN superseded_by INTEGER")
+            if "note" not in columns:  # kept from before notes (fork): all ordinary
+                self._db.execute("ALTER TABLE memories ADD COLUMN note INTEGER NOT NULL DEFAULT 0")
         self._characters = characters
         self._clock = clock
         self._embedder = embedder
@@ -391,7 +403,11 @@ class Memories:
     ) -> str | None:
         found = await self._relevant(query_text, candidates)
         character = self._characters[conversation.character_id]
-        return _memories_prompt(found, character, timezone, _FOUND) if found else None
+        return (
+            _memories_prompt(found, character, timezone, _FOUND, self._clock())
+            if found
+            else None
+        )
 
     async def _relevant(self, query_text: str, candidates: Sequence[Memory]) -> list[Memory]:
         """As many as `MAX_FOUND` of the `candidates` relevant to `query_text`, most relevant
@@ -434,15 +450,34 @@ class Memories:
             found = await self._relevant(last_turn, candidates)
         since = (self._clock() - LATELY).astimezone(UTC)
         latest = [
-            m for m in _holding(await asyncio.to_thread(self.kept, user_id), character_id)
+            m for m in _recallable(await asyncio.to_thread(self.kept, user_id), character_id)
             if datetime.fromisoformat(m.created_at) >= since
         ][-MAX_LATEST:]
         ids = {m.id for m in found}
         recalled = [*found, *(m for m in reversed(latest) if m.id not in ids)]
         character = self._characters[character_id]
         return (
-            _memories_prompt(recalled, character, timezone, _REACHING_OUT) if recalled else None
+            _memories_prompt(recalled, character, timezone, _REACHING_OUT, self._clock())
+            if recalled
+            else None
         )
+
+    async def notes(self, conversation: Conversation, timezone: str) -> str | None:
+        """(fork) The prompt section carrying the standing ways of treating him — how to
+        call him, what she promised, what he asked her to watch — told to this character
+        and still holding, newest first; None if there are none, or memory is off.
+
+        Read in full every turn rather than searched for: these are not facts to recall on
+        the right topic, they are how she is with him, whether or not the topic comes up."""
+        if self._services is None:
+            return None
+        user_id, character_id = conversation.user_id, conversation.character_id
+        kept = await asyncio.to_thread(self.kept, user_id)
+        told = [m for m in _holding(kept, character_id) if m.note]
+        if not told:
+            return None
+        character = self._characters[character_id]
+        return _notes_prompt(told[-MAX_NOTES:], character)
 
     async def _nearest(
         self,
@@ -456,8 +491,12 @@ class Memories:
         `embedder`, nearest first, only those told to the character `character_id` if given.
         Raises EmbeddingError, embedding those not embedded yet."""
         memories = await asyncio.to_thread(self.kept, user_id)
-        vectors = await self._vectors(embedder, user_id, memories)
-        holding = _holding(memories, character_id)
+        # (fork) 相处的方式不参与检索，也就不嵌入；其余仍然一次嵌好、所有角色共用。
+        recallable = [
+            m for m in memories if m.superseded_by is None and not m.note
+        ]
+        vectors = await self._vectors(embedder, user_id, recallable)
+        holding = _recallable(memories, character_id)
         return [
             holding[i] for i, _ in nearest([vectors[m.id] for m in holding], query_vector, limit)
         ]
@@ -558,8 +597,10 @@ class Memories:
                         exc_info=True)
             return
         try:
-            if added:
-                await self._vectors(services.embedder, user_id, added, forget=False)
+            # (fork) 相处的方式每轮全量带着，不参与检索，也就不必为它付一次嵌入。
+            recallable = [m for m in added if not m.note]
+            if recallable:
+                await self._vectors(services.embedder, user_id, recallable, forget=False)
         except EmbeddingError:
             log.warning("embedding new memories failed; they are embedded when searched",
                         exc_info=True)
@@ -570,7 +611,7 @@ class Memories:
         with self._lock:
             rows = self._db.execute(
                 "SELECT id, user_id, source_character_id, text, created_at, superseded_by,"
-                " conversation_id FROM memories WHERE user_id = ? ORDER BY id",
+                " conversation_id, note FROM memories WHERE user_id = ? ORDER BY id",
                 (user_id,),
             ).fetchall()
         return [self._memory(*row) for row in rows]
@@ -578,11 +619,12 @@ class Memories:
     def _memory(
         self, id: int, user_id: str, source_character_id: str, text: str, created_at: str,
         superseded_by: int | None = None, conversation_id: str | None = None,
+        note: bool = False,
     ) -> Memory:
         source = self._characters.get(source_character_id)
         return Memory(
             id, user_id, source_character_id, source.name if source else None, text,
-            created_at, superseded_by, conversation_id,
+            created_at, superseded_by, conversation_id, bool(note),
         )
 
     def _add(
@@ -611,15 +653,17 @@ class Memories:
                     # 「历史对话」): the memory is kept all the same, saying where no longer.
                     cursor = self._db.execute(
                         "INSERT INTO memories"
-                        " (user_id, source_character_id, conversation_id, text, created_at)"
-                        " VALUES (?, ?, (SELECT id FROM conversations WHERE id = ?), ?, ?)",
+                        " (user_id, source_character_id, conversation_id, text, created_at,"
+                        " note) VALUES (?, ?, (SELECT id FROM conversations WHERE id = ?),"
+                        " ?, ?, ?)",
                         (user_id, conversation.character_id, conversation.id, memory.text,
-                         created_at),
+                         created_at, memory.note),
                     )
                     assert cursor.lastrowid is not None
                     id = cursor.lastrowid
                     added.append(self._memory(
-                        id, user_id, conversation.character_id, memory.text, created_at
+                        id, user_id, conversation.character_id, memory.text, created_at,
+                        note=memory.note,
                     ))
                 else:
                     id, superseded = kept
@@ -734,6 +778,11 @@ class MemoryTurn:
         is off or reranking failed."""
         return await self._memories._find(self._conversation, self._timezone, query, candidates)
 
+    async def notes(self) -> str | None:
+        """(fork) The prompt section carrying how they are together — what to call him, what
+        she promised, what he asked her to watch; None if there is none, or memory is off."""
+        return await self._memories.notes(self._conversation, self._timezone)
+
     def write_down(
         self,
         history: Sequence[Message],
@@ -817,7 +866,11 @@ _INSTRUCTIONS = """\
 现在狗去世了，就写「制作人的狗去世了，现在还养着那只猫」，取代原来那条。
 - 两件事可以同时成立的（例如喜欢喝咖啡，最近也开始喝茶），新的照常写，不取代旧的。
 
-只输出 JSON，格式为 {"memories": [{"text": "……", "supersedes": [编号]}]}，不取代任何记忆时 \
+其中约定怎么称呼制作人、答应过他什么、他请她注意什么（例如「叫我界君」「别忘了周五一起吃饭」「白天别发消息，在上班」）\
+是相处的方式，不是一件事：这样的记忆在 note 里写 true。它们每轮都会放在她面前，不会因为聊到别的话题就忘掉；\
+写成完整的一句，仍然以「制作人」开头。别的记忆 note 写 false。
+
+只输出 JSON，格式为 {"memories": [{"text": "……", "supersedes": [编号], "note": true 或 false}]}，不取代任何记忆时 \
 supersedes 写 []；没有值得记住的就输出 {"memories": []}。"""
 
 
@@ -878,6 +931,8 @@ class NewMemory:
     supersedes: tuple[int, ...] = ()
     """The numbers it was shown the memories this one supersedes under, counting from 1;
     any it was not shown are left for `Memories._add` to ignore."""
+    note: bool = False
+    """(fork) A standing way of treating him, to be read every turn, not searched for."""
 
 
 def parse_memories(answer: str) -> list[NewMemory] | None:
@@ -894,14 +949,17 @@ def parse_memories(answer: str) -> list[NewMemory] | None:
     written: dict[str, NewMemory] = {}
     for memory in memories:
         if isinstance(memory, dict):
-            text, supersedes = memory.get("text"), memory.get("supersedes")
+            text, supersedes, note = (
+                memory.get("text"), memory.get("supersedes"), memory.get("note")
+            )
         else:
-            text, supersedes = memory, None
+            text, supersedes, note = memory, None, None
         if not isinstance(text, str) or not (text := text.strip()[:MAX_MEMORY_LENGTH]):
             continue
         numbers = supersedes if isinstance(supersedes, list) else []
         written.setdefault(text, NewMemory(
-            text, tuple(dict.fromkeys(n for n in numbers if type(n) is int))
+            text, tuple(dict.fromkeys(n for n in numbers if type(n) is int)),
+            note is True,
         ))
     return list(written.values())[:MAX_NEW_MEMORIES]
 
@@ -928,14 +986,29 @@ def _holding(memories: Sequence[Memory], character_id: str | None = None) -> lis
     ]
 
 
+def _recallable(memories: Sequence[Memory], character_id: str | None = None) -> list[Memory]:
+    """(fork) Those a turn may find by search: holding, and not one of the standing ways of
+    treating him — those are read in full every turn (`Memories.notes`), so finding them
+    again by topic would only take the place of something else."""
+    return [m for m in _holding(memories, character_id) if not m.note]
+
+
 def _memories_prompt(
-    memories: Sequence[Memory], character: Character, timezone: str, opening: str
+    memories: Sequence[Memory],
+    character: Character,
+    timezone: str,
+    opening: str,
+    now: datetime | None = None,
 ) -> str:
     """The prompt section carrying `memories`, after its heading and `opening`, which says
-    what they are."""
+    what they are; `now`, when given, says how long ago each was told as well as the day,
+    so that she asks after the interview rather than after last month's news."""
     lines = ["# 关于制作人的记忆", opening]
     for memory in memories:
-        when = _date(datetime.fromisoformat(memory.created_at).astimezone(ZoneInfo(timezone)))
+        told_at = datetime.fromisoformat(memory.created_at).astimezone(ZoneInfo(timezone))
+        when = _date(told_at)
+        if now is not None and (ago := _ago(told_at, now.astimezone(ZoneInfo(timezone)))):
+            when = f"{when}，{ago}"
         if memory.text.startswith(_LETTER_MARK):
             # 她写给制作人的信（fork）：不是制作人告诉她的，是谁做过的事要说清楚。
             body = memory.text[len(_LETTER_MARK):]
@@ -953,6 +1026,29 @@ def _memories_prompt(
                 f"例如「听{name}说……」，不要说成是制作人亲口告诉你的）"
             )
     return "\n".join(lines)
+
+
+def _notes_prompt(memories: Sequence[Memory], character: Character) -> str:
+    """(fork) The prompt section carrying the standing ways of treating him, with what they
+    mean: they are not things to bring up, they are how she is with him every turn."""
+    lines = [
+        "# 你们相处的约定",
+        "这些是制作人告诉过你、你现在就该照着做的：称呼、约好的事、他请你注意的地方。"
+        "不用等话题说到，平时说话就按这样来；自然地带进语气里，不要逐条念出来。",
+    ]
+    lines += [f"- {memory.text}" for memory in memories]
+    return "\n".join(lines)
+
+
+def _ago(told: datetime, now: datetime) -> str:
+    """How long ago `told` was, said in days once it is a day or more and in hours inside
+    the first; empty inside the hour, where the date itself says it all."""
+    seconds = (now - told).total_seconds()
+    if seconds < 3600:
+        return ""
+    if seconds < 86400:
+        return f"约 {int(seconds // 3600)} 小时前"
+    return f"约 {int(seconds // 86400)} 天前"
 
 
 def _date(moment: datetime) -> str:

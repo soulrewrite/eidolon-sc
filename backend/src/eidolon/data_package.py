@@ -444,6 +444,8 @@ class PackagedMemory(_Strict):
     text: Annotated[str, Field(min_length=1, max_length=MAX_MEMORY_LENGTH)]
     created_at: Time
     superseded_by: PackageId | None
+    note: bool = False
+    """(fork) One of the standing ways of treating him; absent in packages from before it."""
 
     @classmethod
     def of(cls, memory: Memory, with_conversations: bool) -> "PackagedMemory":
@@ -457,6 +459,7 @@ class PackagedMemory(_Strict):
             text=memory.text,
             created_at=_stored_time(memory.created_at),
             superseded_by=memory.superseded_by,
+            note=memory.note,
         )
 
     def carried(self, conversations: Mapping[PackageKey, str]) -> CarriedMemory:
@@ -470,6 +473,7 @@ class PackagedMemory(_Strict):
             superseded_by=self.superseded_by,
             conversation_id=None if self.conversation is None
             else conversations.get(self.conversation),
+            note=self.note,
         )
 
 

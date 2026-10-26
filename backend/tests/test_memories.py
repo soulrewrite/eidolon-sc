@@ -200,6 +200,54 @@ async def test_the_background_model_reads_the_exchange_and_what_is_already_remem
     assert [m.text for m in listed] == [TRIP, CAT]
 
 
+def noted(*texts: str) -> str:
+    """The background model's answer when each of `texts` is a standing way of treating
+    him (fork), to be read every turn."""
+    return json.dumps(
+        {"memories": [{"text": text, "note": True} for text in texts]}, ensure_ascii=False
+    )
+
+
+async def test_how_they_are_together_is_read_every_turn_and_never_searched_for(
+    world: World, make_memories: MemoriesFactory
+):
+    """(fork) 「叫我界君」这样的相处方式另存一类：不嵌入、不参与检索，但每轮都整段
+    交给扮演她的模型——不然只有聊到称呼时它才会被检索出来。"""
+    background = FakeBackgroundLLM(noted("制作人希望她叫他「界君」"))
+    embedder = FakeEmbedder()
+    memories = make_memories(background_llm=background, embedder=embedder)
+    conversation = world.conversation("mano")
+
+    await tell(memories, world, conversation, "以后叫我界君吧")
+    await memories.entries(world.producer)
+    turn = await begin(memories, conversation)
+
+    notes = await turn.notes()
+    assert notes is not None
+    assert "# 你们相处的约定" in notes and "界君" in notes
+    assert all("界君" not in document for document in embedder.documents)  # 不嵌入
+
+    query = memory_query(world.store.list_messages(conversation.id), "在做什么呢")
+    candidates = await turn.candidates(await FakeEmbedder().embed_query(query))
+    assert all("界君" not in m.text for m in candidates)  # 也不参与检索
+
+
+def test_a_memory_says_how_long_ago_it_was_told(world: World):
+    """(fork) 检索出来的记忆带「多久之前」：她会问起上周的面试，而不是上个月的新闻。"""
+    character = world.characters["mano"]
+    recent = memory.Memory(
+        1, world.producer, "mano", character.name, CAT, "2026-09-25T02:30:00+00:00"
+    )
+    old = memory.Memory(
+        2, world.producer, "mano", character.name, TRIP, "2026-09-20T03:00:00+00:00"
+    )
+
+    told = memory._memories_prompt([recent, old], character, TZ, "opening", NOW)
+
+    assert f"{CAT}（2026年9月25日，制作人对你说的）" in told  # 一小时内不重复
+    assert f"{TRIP}（2026年9月20日，约 5 天前，制作人对你说的）" in told
+
+
 async def test_a_turn_that_reveals_nothing_is_not_asked_about(
     world: World, make_memories: MemoriesFactory
 ):

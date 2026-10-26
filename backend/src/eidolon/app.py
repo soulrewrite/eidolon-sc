@@ -648,6 +648,8 @@ def create_app(backend: Backend) -> FastAPI:
                 "source_character_name": m.source_character_name,
                 "created_at": m.created_at,
                 "superseded": m.superseded_by is not None,
+                # (fork) 相处的方式：每轮都在提示词里，不靠检索。
+                "agreement": m.note,
             }
             for m in await memory.entries(user_id)
         ]

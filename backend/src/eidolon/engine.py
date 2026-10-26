@@ -829,6 +829,9 @@ class ConversationEngine:
         being_couple = (
             [couple_prompt(coupled, character.couple_note, timezone)] if coupled else []
         )
+        # fork（记忆 A）：他说的「叫我界君」「白天别发消息」这类相处的方式，每轮全量带着，
+        # 不像别的记忆那样要检索到才用得上。
+        agreements = [section] if (section := await memory.notes()) else []
         prompt = self._prompt(
             character, world_prompt, producer_prompt(profile),
             chat_history([*previous, *messages], turns),
@@ -839,6 +842,7 @@ class ConversationEngine:
                     affinity_lines, last_contact,
                 ),
                 *being_couple,
+                *agreements,
                 *([CONFESSING[confession]] if confession else []),
                 *([about_photo] if about_photo else []),
             ],
