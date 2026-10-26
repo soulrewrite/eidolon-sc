@@ -975,8 +975,9 @@ function FavoriteKey({ refId }: { refId: SpeechRef }) {
     <button
       type="button"
       className={cn(
-        // 挂在播放键下面（`top-full`），在字幕左侧那块空位里；不进流，出现消失都不推字。
-        "absolute top-full left-0 z-10 flex size-4 items-center justify-center rounded-full",
+        // 挂在播放键正下方，和按键一样宽（24px）所以左右对齐；那块是第二行左边的空位。
+        // 绝对定位、不进流，出现和消失都不推字。
+        "absolute top-full left-0 z-10 flex size-6 items-center justify-center rounded-full",
         "text-muted-foreground transition-colors duration-150 ease-out",
         "hover:bg-accent hover:text-foreground",
         kept && "text-her-mark",
@@ -985,7 +986,7 @@ function FavoriteKey({ refId }: { refId: SpeechRef }) {
       aria-label={kept ? t.speechUnfavorite : t.speechFavorite}
       onClick={() => void toggle()}
     >
-      <FavoriteIcon aria-hidden className={cn("size-3", kept && "fill-current")} />
+      <FavoriteIcon aria-hidden className={cn("size-4", kept && "fill-current")} />
     </button>
   );
 }
