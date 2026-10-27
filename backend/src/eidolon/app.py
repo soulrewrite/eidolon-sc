@@ -600,7 +600,6 @@ def create_app(backend: Backend) -> FastAPI:
             await client.aclose()
             raise HTTPException(404, "网易云没有这首的版权")
         kind = upstream.headers.get("content-type", "audio/mpeg")
-        kind = upstream.headers.get("content-type", "audio/mpeg")
 
         export = {}
         for name in ("content-length", "content-range", "accept-ranges"):

@@ -2,10 +2,11 @@
 
 她唱过的歌和出过的碟都在世界设定里（`world.json` 的 `songs` / `releases`，由 `eidolon world
 sync` 从 Lantis、im@sparql 等资料站导入）。这里把它们按偶像拆开给前端，另外配一个「这首歌在
-网易云是哪一首」的查找——前端只放外链播放器，音频始终在网易云那边，我们不碰。
+网易云是哪一首」的查找——音频由后端 `/api/music/stream` 转发网易云官方直链（那张直链是
+http，页面上直接引用会被浏览器拦）；我们只做转发，不存任何音频。
 
-查找结果缓存在 `MUSIC_CACHE_PATH`（默认 `/data/music-cache.json`）：同一个曲名只问一次，
-网易云那边限流也不至于把页面卡住。
+查找结果存在 `EIDOLON_MUSIC_CACHE`（默认 `/data/music-lookup.db`，SQLite 一曲一行）：
+同一个曲名只问一次，网易云那边限流也不至于把页面卡住。
 """
 
 from __future__ import annotations
@@ -13,8 +14,11 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import re
 import os
+import re
+import sqlite3
+import threading
+from datetime import UTC, datetime, timedelta
 from dataclasses import dataclass
 from pathlib import Path
 from collections.abc import Sequence
@@ -22,6 +26,7 @@ from typing import Any
 
 import httpx
 
+from eidolon.database import connect as connect_database
 from eidolon.world import World
 
 log = logging.getLogger(__name__)
@@ -67,9 +72,18 @@ def dj_programs_path() -> Path:
     return Path(os.environ.get(DJ_PROGRAMS_ENV, "/data/music-dj.txt"))
 
 
+LOOKUP_TTL = timedelta(days=7)
+"""查过但没找到的，这么久之后当作没查过——网易云也许会补上架。查到的不设期限。"""
+
+
 def cache_path() -> Path:
-    """查找结果的缓存文件，部署者可以用 `EIDOLON_MUSIC_CACHE` 换位置。"""
-    return Path(os.environ.get("EIDOLON_MUSIC_CACHE", "/data/music-cache.json"))
+    """查找结果存在哪，部署者可以用 `EIDOLON_MUSIC_CACHE` 换位置（SQLite 文件）。"""
+    return Path(os.environ.get("EIDOLON_MUSIC_CACHE", "/data/music-lookup.db"))
+
+
+def legacy_cache_path() -> Path:
+    """以前那份整份 JSON（`/data/music-cache.json`）：第一次跑新代码时导进来。"""
+    return Path("/data/music-cache.json")
 
 
 @dataclass(frozen=True)
@@ -112,6 +126,78 @@ class Album:
         }
 
 
+class _LookupStore:
+    """一曲一行：查到的那首（或「没有」）和查的时间。
+
+    以前是整份 JSON 重写——1175 首都查过之后每次要写 1MB 级，中途崩了还留半截文件。
+    现在一行一次 upsert。
+    """
+
+    def __init__(self, path: Path) -> None:
+        self._path = path
+        self._lock = threading.Lock()
+        self._db: sqlite3.Connection | None = None
+
+    def _connect(self) -> sqlite3.Connection:
+        if self._db is None:
+            # 连接一律走 `database.connect`（只有那个模块能碰 sqlite3.connect，
+            # 见 tests/test_database.py）：它顺手建目录、开 WAL、等写锁 30 秒
+            self._db = connect_database(self._path)
+            self._db.execute(
+                "CREATE TABLE IF NOT EXISTS music_lookup ("
+                " title TEXT PRIMARY KEY, found TEXT NOT NULL, checked_at TEXT NOT NULL)"
+            )
+            self._db.commit()
+        return self._db
+
+    def load(self, ttl: timedelta) -> dict[str, dict[str, Any] | None]:
+        """整表读进内存；「没有」超过 `ttl` 的不载入（当成没查过）。"""
+        with self._lock:
+            rows = self._connect().execute(
+                "SELECT title, found, checked_at FROM music_lookup"
+            ).fetchall()
+        now = datetime.now(UTC)
+        found: dict[str, dict[str, Any] | None] = {}
+        for title, payload, checked_at in rows:
+            try:
+                value = json.loads(payload)
+            except ValueError:
+                continue
+            if value is not None:
+                found[title] = value
+                continue
+            try:
+                when = datetime.fromisoformat(checked_at)
+            except ValueError:
+                continue
+            if now - when < ttl:
+                found[title] = None
+        return found
+
+    def put(self, title: str, found: dict[str, Any] | None) -> None:
+        self.put_many([(title, found)])
+
+    def put_many(self, rows: Sequence[tuple[str, dict[str, Any] | None]]) -> None:
+        if not rows:
+            return
+        stamp = datetime.now(UTC).isoformat()
+        with self._lock:
+            db = self._connect()
+            db.executemany(
+                "INSERT INTO music_lookup (title, found, checked_at) VALUES (?, ?, ?)"
+                " ON CONFLICT(title) DO UPDATE SET found = excluded.found,"
+                " checked_at = excluded.checked_at",
+                [(title, json.dumps(found, ensure_ascii=False), stamp) for title, found in rows],
+            )
+            db.commit()
+
+    def close(self) -> None:
+        with self._lock:
+            if self._db is not None:
+                self._db.close()
+                self._db = None
+
+
 class MusicLibrary:
     """世界设定里她唱过的歌，按偶像和碟两种切法。"""
 
@@ -121,11 +207,12 @@ class MusicLibrary:
         self._by_singer: dict[str, list[Track]] = {}
         self._cv_of: dict[str, str] = {}
         self._unit_of: dict[str, str] = {}
-        self._path = path if path is not None else cache_path()
-        self._found: dict[str, dict[str, Any] | None] = {}
+        self._store = _LookupStore(path if path is not None else cache_path())
+        self._found: dict[str, dict[str, Any] | None] = self._store.load(LOOKUP_TTL)
+        if path is None:
+            self._import_legacy_cache()
         self._programs: list[str] = []
-        self._lock = asyncio.Lock()
-        self._load_cache()
+        self._locks: dict[str, asyncio.Lock] = {}
         self._programs = _read_program_ids()
         if world is None:
             return
@@ -218,14 +305,15 @@ class MusicLibrary:
         if title in self._found:
             return cached
 
-        async with self._lock:
+        # 按曲名一把锁：同一首只问一次，不同的歌互不等待
+        async with self._locks.setdefault(title, asyncio.Lock()):
             if title in self._found:
                 return self._found[title]
             ok, found = await self._ask(client, title, hints, terms)
             # 只缓存「查到」和「确实没有」，网络故障不写进缓存
             if ok:
                 self._found[title] = found
-                await asyncio.to_thread(self._save_cache)
+                await asyncio.to_thread(self._store.put, title, found)
                 return found
             return None
 
@@ -238,8 +326,9 @@ class MusicLibrary:
     ) -> tuple[bool, dict[str, Any] | None]:
         """问一次网易云：`(问成了吗, 查到的那首或 None)`。没问成时不要缓存。
 
-        只用曲名搜：带上「シャイニーカラーズ」反而会把结果带偏（「虹になれ」那次返回了
-        一首松尾和子的歌）。查到之后再按歌手名挑，见 `_best_match`。
+        按 `_keywords()` 给的几种关键词依次试（曲名 → 去括号 → 曲名+声优 → 曲名+组合）；
+        带上「シャイニーカラーズ」反而会把结果带偏（「虹になれ」那次返回了一首松尾和子的歌），
+        所以它只在挑歌手时当提示，见 `_best_match`。
         """
         # 一条候选都没搜到，多半是被网易云限流了（同一关键词连着问会被掐），
         # 这种不写进缓存——下次再问一次，别把「限流」记成「没有这首」。
@@ -374,23 +463,32 @@ class MusicLibrary:
             return None
         found = {"name": str(name), "id": str(track)}
         self._found[key] = found
-        await asyncio.to_thread(self._save_cache)
+        await asyncio.to_thread(self._store.put, key, found)
         return found
 
-    def _load_cache(self) -> None:
-        try:
-            self._found = json.loads(self._path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            self._found = {}
-
     def _save_cache(self) -> None:
+        """把内存里的全写回去。平时是一曲一行地写，这个方法只给测试和迁移用。"""
+        self._store.put_many(list(self._found.items()))
+
+    def _import_legacy_cache(self) -> None:
+        """第一次跑新代码：把老的 `music-cache.json` 导进来，然后改名留底。"""
+        legacy = legacy_cache_path()
+        if self._found or not legacy.exists():
+            return
         try:
-            self._path.parent.mkdir(parents=True, exist_ok=True)
-            self._path.write_text(
-                json.dumps(self._found, ensure_ascii=False, indent=0), encoding="utf-8"
-            )
-        except OSError as error:
-            log.warning("歌曲缓存写不进去：%r", error)
+            data = json.loads(legacy.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as error:
+            log.warning("老歌曲缓存读不了，跳过：%r", error)
+            return
+        if not isinstance(data, dict):
+            return
+        self._found = {str(title): value for title, value in data.items()}
+        self._save_cache()
+        try:
+            legacy.rename(legacy.with_suffix(".json.migrated"))
+        except OSError:
+            pass
+        log.info("歌曲缓存已迁移到 %s（%d 条）", cache_path(), len(self._found))
 
 
 def _read_program_ids() -> list[str]:

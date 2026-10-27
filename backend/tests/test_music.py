@@ -1,6 +1,8 @@
 """曲库与网易云查找（FORK.md「歌曲」）。不起服务，只测纯逻辑。"""
 
-from datetime import date
+import asyncio
+import sqlite3
+from datetime import UTC, date, datetime, timedelta
 from typing import cast
 
 import httpx
@@ -185,6 +187,62 @@ def test_a_song_named_after_the_unit_is_not_that_unit_song():
         {"id": 1, "name": "Migratory Echoes (アルストロメリア Ver.)", "ar": [{"name": "アルストロメリア"}]},
     ]
     assert _best_match("アルストロメリア", songs) is None
+
+
+def test_a_miss_expires_after_a_week(tmp_path):
+    """「查过但没有」不是永久的：网易云以后上架了，一周后再问一次。"""
+    first = library(tmp_path)
+    first._found["どこにもない"] = None  # pyright: ignore[reportPrivateUsage]
+    first._save_cache()  # pyright: ignore[reportPrivateUsage]
+
+    stale = (datetime.now(UTC) - timedelta(days=8)).isoformat()
+    with sqlite3.connect(tmp_path / "cache.json") as db:
+        db.execute("UPDATE music_lookup SET checked_at = ? WHERE title = ?", (stale, "どこにもない"))
+
+    again = library(tmp_path)
+    assert "どこにもない" not in again._found  # pyright: ignore[reportPrivateUsage]
+
+
+def test_a_fresh_miss_is_remembered(tmp_path):
+    """一周之内的「没有」仍然算查过，不重复问网易云。"""
+    first = library(tmp_path)
+    first._found["どこにもない"] = None  # pyright: ignore[reportPrivateUsage]
+    first._save_cache()  # pyright: ignore[reportPrivateUsage]
+
+    again = library(tmp_path)
+    assert "どこにもない" in again._found  # pyright: ignore[reportPrivateUsage]
+    assert again.cached("どこにもない") is None
+
+
+class SlowClient:
+    """每次搜索都要一小会儿，用来量并发。"""
+
+    status_code = 200
+
+    def __init__(self) -> None:
+        self.active = 0
+        self.peak = 0
+
+    async def get(self, *_args: object, **_kwargs: object) -> object:
+        self.active += 1
+        self.peak = max(self.peak, self.active)
+        await asyncio.sleep(0.05)
+        self.active -= 1
+        return self
+
+    def json(self) -> dict:
+        return {"result": {"songs": []}}
+
+
+async def test_two_different_songs_do_not_wait_for_each_other(tmp_path):
+    """按曲名各一把锁：两个人同时点不同的歌，不该排队。"""
+    music = library(tmp_path)
+    client = SlowClient()
+    await asyncio.gather(
+        music.lookup(cast("httpx.AsyncClient", client), "A"),
+        music.lookup(cast("httpx.AsyncClient", client), "B"),
+    )
+    assert client.peak == 2
 
 
 def test_the_original_wins_over_a_solo_version():
