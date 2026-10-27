@@ -183,6 +183,8 @@ export type ReachOut = {
   zh: string;
   segments: Segment[];
   created_at: string;
+  /** 她看到的那条社区消息的官方图（fork）：`/api/news/<key>/image`；没有就是 null。 */
+  image?: string | null;
 };
 
 /** What a conversation's record holds, in order. */

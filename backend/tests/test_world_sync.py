@@ -6,7 +6,9 @@ sites and checked in the data file it writes and the report it prints."""
 import json
 from datetime import date, timedelta
 from pathlib import Path
+from typing import cast
 
+import httpx
 import pytest
 
 from tests.conftest import Admin, CharacterConfig
@@ -458,7 +460,13 @@ def test_when_a_source_fails_the_import_fails_and_the_old_file_is_kept(
     sites.idols.append(dict(id="Suzuki_Hana", name="鈴木羽那", kana="すずきはな", cv="三川華月"))
     sites.down.add(host)
 
-    code, _, err = world_sync()
+    code, out, err = world_sync()
+
+    if host in ("sparql.crssnky.xyz", "shinycolors.idolmaster-official.jp"):
+        # 人物册的来源允许降级（2026-10-27）：导入继续，只在报告里说一声
+        assert code == 0, err
+        assert "沿用旧资料文件" in out
+        return
 
     assert code != 0
     assert host in err
@@ -1419,3 +1427,48 @@ def test_an_imas_db_index_without_any_live_fails_the_import(
     assert code != 0
     assert "imas-db.jp" in err
     assert world_file(characters).read_text(encoding="utf-8") == before
+
+
+async def test_a_broken_roster_source_keeps_the_previous_roster(monkeypatch):
+    """人物册的来源连不上时沿用旧资料：碟、live、歌单照常更新（2026-10-27）。"""
+    from eidolon import world_sync
+    from eidolon.world import Idol, Staff, Unit, World
+
+    previous = World(
+        as_of=date(2026, 9, 28),
+        office="283プロダクション",
+        staff=(Staff(name="葉月", reading="はづき", position="事務員", sources=()),),
+        units=(Unit(name="illumination STARS", reading=None, members=("櫻木真乃",), sources=()),),
+        idols=(Idol(name="櫻木真乃", reading="さくらぎ まの", unit="illumination STARS", cv="関根瞳", sources=()),),
+    )
+
+    async def broken(*_args, **_kwargs):
+        raise world_sync.WorldSyncError("sparql 连不上")
+
+    monkeypatch.setattr(world_sync, "_sparql", broken)
+
+    notes: list[str] = []
+    disagreements: list[str] = []
+    office, staff, units, special, idols = await world_sync._roster(
+        cast("httpx.AsyncClient", None), previous, notes, disagreements
+    )
+
+    assert office == previous.office
+    assert staff == previous.staff
+    assert units == previous.units
+    assert idols == previous.idols
+    assert special == []
+    assert notes and "沿用旧资料文件" in notes[0]
+
+
+async def test_a_first_import_still_needs_the_roster_sources(monkeypatch):
+    """没有旧文件可沿用的时候，人物册连不上就照旧失败。"""
+    from eidolon import world_sync
+
+    async def broken(*_args, **_kwargs):
+        raise world_sync.WorldSyncError("sparql 连不上")
+
+    monkeypatch.setattr(world_sync, "_sparql", broken)
+
+    with pytest.raises(world_sync.WorldSyncError):
+        await world_sync._roster(cast("httpx.AsyncClient", None), None, [], [])

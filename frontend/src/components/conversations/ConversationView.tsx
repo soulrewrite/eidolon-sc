@@ -827,6 +827,18 @@ function Bubbled({
       <MessageContent className="gap-1">
         {first && <MessageHeader className="px-1">{character.name}</MessageHeader>}
         {entry.photo && <PhotoBlock photo={entry.photo} />}
+        {/* fork（社区消息）：她看到的那条消息的官方图，压在气泡上方，点开看大图。 */}
+        {entry.image && (
+          <a
+            href={entry.image}
+            target="_blank"
+            rel="noreferrer"
+            className="block w-fit max-w-[min(18rem,72%)] overflow-hidden rounded-xl border"
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={entry.image} alt="" className="h-auto w-full" loading="lazy" />
+          </a>
+        )}
         <div className="flex min-w-0 items-end gap-1.5">
           <Bubble variant="her" joinsPrevious={!first} joinsNext={!last}>
             <BubbleContent>

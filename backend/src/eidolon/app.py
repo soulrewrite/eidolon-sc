@@ -10,6 +10,7 @@ from collections.abc import AsyncIterator, Callable
 from contextlib import aclosing, asynccontextmanager
 from dataclasses import asdict
 from pathlib import Path
+from zoneinfo import ZoneInfo
 from typing import Annotated
 
 from fastapi import FastAPI, Header, HTTPException, Request
@@ -60,6 +61,7 @@ from eidolon.letters import add_letter_routes
 from eidolon.gifts_api import add_gift_routes
 from eidolon.message_speech import add_message_speech_routes
 from eidolon.photos_api import add_photo_routes
+from eidolon.producer import effective_timezone
 from eidolon.sessions import UserId, session_middleware
 from eidolon.sponsor_api import add_sponsor_routes
 from eidolon.stats import add_stats_routes
@@ -89,6 +91,12 @@ def _picture(path: Path, request: Request) -> Response:
     if etag in (tag.strip() for tag in cached_etags.split(",")):
         return Response(status_code=304, headers={"ETag": etag, **_PICTURE_CACHE})
     return response
+
+
+class ScheduleInput(BaseModel):
+    """开发接口：让谁重排今天的安排。"""
+
+    character_id: str
 
 
 class NewConversation(BaseModel):
@@ -631,6 +639,92 @@ def create_app(backend: Backend) -> FastAPI:
         async with httpx.AsyncClient(trust_env=False, timeout=10) as client:
             found = await songs.lookup(client, title)
         return {"found": found}
+
+    if backend.schedules is not None:
+        schedules = backend.schedules
+
+        @app.get("/api/characters/{character_id}/schedule")
+        def character_schedule(
+            character_id: str, user_id: UserId, device_timezone: DeviceTimezone = None
+        ) -> dict:
+            """她今天的安排（fork，`schedules.py`）：现在在干嘛、今天几段、几点睡几点洗澡。"""
+            if character_id not in characters:
+                raise HTTPException(404, "角色不存在")
+            timezone = effective_timezone(store.get_profile(user_id), device_timezone)
+            plan = schedules.ensure(user_id, character_id, timezone)
+            if plan is None:
+                raise HTTPException(404, "这位还没有作息数据")
+            state, what = schedules.now(user_id, character_id, timezone)
+            return {
+                "day": plan.day.isoformat(),
+                "state": state,
+                "now": what,
+                "entries": [{"when": when, "doing": doing} for when, doing in plan.entries],
+                "sleep": plan.sleep.isoformat(timespec="minutes"),
+                "wake": plan.wake.isoformat(timespec="minutes"),
+                "bath_at": plan.bath_at.isoformat(timespec="minutes"),
+                "bath_until": plan.bath_until.isoformat(timespec="minutes"),
+                "live": plan.live,
+            }
+
+        @app.post("/api/schedules/write-now")
+        def write_schedule_now(body: ScheduleInput, user_id: UserId) -> dict:
+            """开发用：丢掉她今天排好的，立刻重排一份。"""
+            if not backend.settings.dev_login:
+                raise HTTPException(403, "只有开发登录能重排安排")
+            if body.character_id not in characters:
+                raise HTTPException(404, "角色不存在")
+            timezone = effective_timezone(store.get_profile(user_id), None)
+            day = backend.clock().astimezone(ZoneInfo(timezone)).date()
+            schedules.forget(user_id, body.character_id, day)
+            plan = schedules.ensure(user_id, body.character_id, timezone)
+            if plan is None:
+                raise HTTPException(404, "这位还没有作息数据")
+            return {"day": plan.day.isoformat(), "entries": len(plan.entries)}
+
+    if backend.community is not None:
+        news = backend.community
+
+        @app.get("/api/news/{key}/image")
+        def news_image(key: str, user_id: UserId) -> Response:
+            """她发来的那条社区消息带的图（fork）：只有登录的人能取，不让缓存共享。"""
+            picture = news.picture(key)
+            if picture is None:
+                raise HTTPException(404, "没有这张图")
+            body, media_type = picture
+            return Response(
+                body, media_type=media_type, headers={"Cache-Control": "private, max-age=86400"}
+            )
+
+        @app.post("/api/news/force")
+        async def push_news(user_id: UserId) -> dict:
+            """开发用：不管窗口，立刻抓一次并推一条，方便看效果。"""
+            if not backend.settings.dev_login:
+                raise HTTPException(403, "只有开发登录能手动推消息")
+            await news.fetch()
+            candidate = news.next_to_push()
+            if candidate is None:
+                return {"pushed": False, "reason": "没有可推的新消息"}
+            conversation = None
+            for current in store.current_conversations():
+                if current.conversation.user_id == user_id:
+                    conversation = current.conversation
+                    break
+            if conversation is None:
+                return {"pushed": False, "reason": "没有对话"}
+            when = f"（{candidate.published}）" if candidate.published else ""
+            image = await news.image_of(candidate)
+            said = await backend.reach_outs.say_about(
+                conversation, candidate.title + when, image=image
+            )
+            if not said:
+                return {"pushed": False, "reason": "她这会儿没发出来"}
+            news.mark_pushed(candidate)
+            return {
+                "pushed": True,
+                "title": candidate.title,
+                "weight": candidate.weight,
+            }
 
     @app.get("/api/characters/{character_id}/affinity")
     def affinity(character_id: str, user_id: UserId) -> dict | None:

@@ -1,10 +1,10 @@
 #!/bin/sh
-# 每天凌晨把 eidolon 的 SQLite 在线备份到 /home/ubuntu/eidolon-backup，保留 14 天。
+# 每天凌晨把 eidolon 的 SQLite 在线备份到家目录下的 eidolon-backup，保留 14 天。
 # 用容器里的 sqlite3 backup API（不是 cp）：WAL 模式下直接拷文件会拿到不一致的快照。
-# 由 ubuntu 用户的 cron 调用：0 4 * * * /home/ubuntu/eidolon-db-backup.sh
+# 由部署用户的 cron 调用：0 4 * * * $HOME/eidolon-db-backup.sh
 set -u
 
-DIR=/home/ubuntu/eidolon-backup
+DIR="$HOME/eidolon-backup"
 KEEP_DAYS=14
 CONTAINER=eidolon-sc-backend-1
 LOG=$DIR/backup.log

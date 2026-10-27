@@ -145,7 +145,8 @@ CREATE TABLE IF NOT EXISTS reach_outs (
     segments TEXT NOT NULL,
     created_at TEXT NOT NULL,
     seen INTEGER NOT NULL DEFAULT 0,
-    record_id INTEGER
+    record_id INTEGER,
+    image TEXT
 );
 CREATE INDEX IF NOT EXISTS reach_outs_by_conversation ON reach_outs(conversation_id, created_at);
 -- The identities banned users signed in with, kept when those users were deleted so that
@@ -354,6 +355,8 @@ class ReachOut:
     zh: str
     segments: list[Segment]
     created_at: str
+    image: str | None = None
+    """The picture she sent with it (fork, 社区消息): the key of the stored bytes, `news/<hash>`."""
     type: Literal["reach_out"] = field(default="reach_out", init=False)
 
     def as_reply(self) -> Message:
@@ -368,12 +371,19 @@ class ReachOut:
         return ReachOut(
             self.id, without_cues(self.ja), without_cues(self.zh),
             [Segment(without_cues(s.ja), without_cues(s.zh)) for s in self.segments],
-            self.created_at,
+            self.created_at, self.image,
         )
 
     def shown(self) -> dict:
-        """As the browser is told it: as people see it."""
-        return asdict(self.without_cues())
+        """As the browser is told it: as people see it, with the picture's address rather than
+        the key it is kept under."""
+        shown = asdict(self.without_cues())
+        # 没有图就不带这个字段：老客户端、老测试都当它不存在
+        if shown.get("image"):
+            shown["image"] = f"/api/news/{shown['image']}/image"
+        else:
+            shown.pop("image", None)
+        return shown
 
 
 Recorded = Message | ConversationEvent | ReachOut
@@ -501,6 +511,10 @@ class Store:
         self._taking_turns: Counter[str] = Counter()
         with self._lock, self._db:
             self._db.executescript(_SCHEMA)
+            # fork（社区消息）：搭话也能带一张图。老库补列，新库建表时就有。
+            columns = {row[1] for row in self._db.execute("PRAGMA table_info(reach_outs)")}
+            if "image" not in columns:
+                self._db.execute("ALTER TABLE reach_outs ADD COLUMN image TEXT")
             self._migrate()
 
     def _migrate(self) -> None:
@@ -1393,6 +1407,7 @@ class Store:
         contact: datetime,
         in_call: Callable[[str], bool],
         since: datetime,
+        image: str | None = None,
     ) -> ReachOut:
         """Record what she said first in the conversation, now, as she thought it after the
         user and she were last in touch at `contact`; not seen yet. Looked at again as it is
@@ -1424,12 +1439,12 @@ class Store:
             ):
                 raise ReachOutRefused()
             cursor = self._db.execute(
-                "INSERT INTO reach_outs (conversation_id, ja, zh, segments, created_at)"
-                " VALUES (?, ?, ?, ?, ?)",
-                (conversation_id, ja, zh, _stored_segments(said), created_at),
+                "INSERT INTO reach_outs (conversation_id, ja, zh, segments, created_at, image)"
+                " VALUES (?, ?, ?, ?, ?, ?)",
+                (conversation_id, ja, zh, _stored_segments(said), created_at, image),
             )
         assert cursor.lastrowid is not None
-        return ReachOut(cursor.lastrowid, ja, zh, list(said), created_at)
+        return ReachOut(cursor.lastrowid, ja, zh, list(said), created_at, image)
 
     def reach_out_recorded_as(self, reach_out_id: int, record_id: int | None) -> None:
         """Keep the id of the activity record of the reach-out, once it is written; answered
@@ -1569,7 +1584,7 @@ _MESSAGE_WITH_PHOTO = (
 )
 """A message with its photo, if any, but not its picture (`_message_with_photo`)."""
 _EVENT_COLUMNS = "id, kind, created_at, affinity, gift_id, liked"
-_REACH_OUT_COLUMNS = "id, ja, zh, segments, created_at"
+_REACH_OUT_COLUMNS = "id, ja, zh, segments, created_at, image"
 
 def write_profile(db: sqlite3.Connection, user_id: str, profile: ProducerProfile) -> None:
     """Save the user's whole producer profile through `db`, in the caller's transaction: what
@@ -1711,6 +1726,7 @@ def _reach_out(row: sqlite3.Row) -> ReachOut:
     return ReachOut(
         row["id"], row["ja"], row["zh"],
         [Segment(**s) for s in json.loads(row["segments"])], row["created_at"],
+        row["image"] if "image" in row.keys() else None,
     )
 
 

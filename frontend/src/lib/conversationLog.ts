@@ -31,6 +31,8 @@ export type Entry =
       photo: Photo | null;
       photosUsedUp?: string;
       reachOut?: true;
+      /** 她看到的那条社区消息的官方图（fork）：取图地址；没有就是 null。 */
+      image?: string | null;
     };
 
 /** The exchange under way: the user's words and the reply, both the last entries shown.
@@ -191,6 +193,7 @@ function toEntry(message: Recorded): Entry {
       affinity: null,
       photo: null,
       reachOut: true,
+      image: message.image ?? null,
     };
   }
   if ("type" in message) {

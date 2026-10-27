@@ -30,6 +30,11 @@ import, so that the deployer can read it beside the git diff before committing t
 
 Every source has to answer: if any fails, the import fails and the old file stays as
 it was. The file is replaced whole, once everything is in.
+
+One exception (2026-10-27): the **roster** sources (im@sparql and the official unit pages)
+are allowed to fail when there is already a file — the idols, units and staff of the
+previous import are kept and only the releases, lives and setlists are refreshed. The
+report says so. A first import still needs them.
 """
 
 import html
@@ -280,16 +285,9 @@ async def sync_world(path: Path, client: httpx.AsyncClient, today: date) -> Worl
     except WorldError as e:
         previous, unreadable = None, str(e)
 
-    idol_rows = await _sparql(client, _IDOLS_QUERY)
-    staff_rows = await _sparql(client, _STAFF_QUERY)
-    unit_rows = await _sparql(client, _UNITS_QUERY)
-    official = await _official_units(client)
-
     disagreements: list[str] = []
     notes = [f"旧资料文件读不了，增减无从比较：{unreadable}"] if unreadable else []
-    office, staff = _staff(staff_rows)
-    units, special = _units(official, unit_rows, disagreements)
-    idols = _idols(idol_rows, units, disagreements, notes)
+    office, staff, units, special, idols = await _roster(client, previous, notes, disagreements)
 
     async def fetch(url: str) -> str:
         return (await _get(client, url)).text
@@ -307,6 +305,35 @@ async def sync_world(path: Path, client: httpx.AsyncClient, today: date) -> Worl
     )
     _write(path, report.world)
     return report
+
+
+async def _roster(
+    client: httpx.AsyncClient,
+    previous: World | None,
+    notes: list[str],
+    disagreements: list[str],
+) -> tuple[str, tuple[Staff, ...], tuple[Unit, ...], list[str], tuple[Idol, ...]]:
+    """事务所、人物和组合。
+
+    im@sparql 和官方组合页只是**人物册**的来源：它们连不上时，沿用旧资料文件里的人物和组合，
+    照样把碟、live 和歌单更新掉（Master 2026-10-27：这个源常年不稳，不能因为它整个导入停摆）。
+    第一次导入没有旧文件可依，仍然照旧失败——那时候没有别的东西可以沿用。
+    """
+    try:
+        idol_rows = await _sparql(client, _IDOLS_QUERY)
+        staff_rows = await _sparql(client, _STAFF_QUERY)
+        unit_rows = await _sparql(client, _UNITS_QUERY)
+        official = await _official_units(client)
+    except WorldSyncError as e:
+        if previous is None:
+            raise
+        notes.append(f"人物与组合的来源连不上，沿用旧资料文件（{e}）")
+        return previous.office, previous.staff, previous.units, [], previous.idols
+
+    office, staff = _staff(staff_rows)
+    units, special = _units(official, unit_rows, disagreements)
+    idols = _idols(idol_rows, units, disagreements, notes)
+    return office, tuple(staff), tuple(units), special, tuple(idols)
 
 
 def _corrections(path: Path, idols: Sequence[Idol]) -> tuple[TrackCorrections, LiveCorrections]:

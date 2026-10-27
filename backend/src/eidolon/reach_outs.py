@@ -434,6 +434,44 @@ class ReachOuts:
                 (due.isoformat(), conversation_id, contact.isoformat()),
             )
 
+    async def say_about(
+        self, conversation: Conversation, about: str, image: str | None = None
+    ) -> bool:
+        """让他和她聊一条社区消息（fork，社区关注）：同 `_reach_out`，说什么由调用方定。
+
+        不算进搭话的间隔，也不挑档位——这类搭话是「她看到消息想说」，由
+        `community_news` 按午晚两个窗口决定何时来。返回有没有真的发出去。
+        """
+        if self._talking(conversation.id):
+            return False
+        recording = self._activity.begin(
+            "reach_out", conversation.user_id, conversation.character_id,
+            own_llm=False, exempt=False,
+        )
+        lease = self._config.lease()
+        try:
+            with recording.current():
+                said = await self._engine.reach_out(
+                    conversation, lease.keys.chat_llm, about=about
+                )
+        except Exception as e:
+            log.warning("talking about the news in %s failed: %s", conversation.id, type(e).__name__)
+            recording.finish("failed")
+            return False
+        finally:
+            lease.release()
+        now = self._clock()
+        try:
+            reach_out = await asyncio.to_thread(
+                self._store.add_reach_out, conversation.id, said, now, self._in_call, now, image
+            )
+        except ReachOutRefused:
+            recording.finish("rejected")
+            return False
+        recording.finish("success")
+        await asyncio.to_thread(self._store.reach_out_recorded_as, reach_out.id, recording.row_id)
+        return True
+
     async def _reach_out(self, due: _Due, now: datetime) -> None:
         """Reach out, unless the user and she have begun talking since her time was looked
         at, as those before took their time."""

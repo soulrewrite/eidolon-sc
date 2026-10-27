@@ -168,11 +168,13 @@ def now_prompt(
     talking: Talking,
     affinity_lines: Sequence[str] = (),
     last_contact: datetime | None = None,
+    schedule_lines: Sequence[str] = (),
 ) -> str:
     """The prompt section about now: the time where the user is, how they are `talking` with
     the character, when they were `last_contact` in touch, if ever, and how long ago, and
     whether it is their birthday; then `affinity_lines`, how the character feels toward them
-    now (`affinity.affinity_prompt`)."""
+    now (`affinity.affinity_prompt`), and `schedule_lines`: what she is doing today
+    (`schedules.prompt_lines`, fork)."""
     zone = ZoneInfo(timezone)
     local = now.astimezone(zone)
     lines = [
@@ -185,6 +187,7 @@ def now_prompt(
         "制作人是在这个时间点跟你说话的。「今天」「昨晚」「刚才」都按上面这个时间算；"
         "历史里写了时间的事，是那时候发生的，别当成刚刚。",
         _TALKING[talking],
+        *schedule_lines,
     ]
     if last_contact is not None:
         then = last_contact.astimezone(zone)

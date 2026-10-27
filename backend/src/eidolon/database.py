@@ -35,6 +35,7 @@ USER_DATA = [
     ("affinities", "user_id = ?"),
     ("couples", "user_id = ?"),
     ("voice_favorites", "user_id = ?"),
+    ("schedules", "user_id = ?"),
     ("gift_balances", "user_id = ?"),
     ("gift_backpacks", "user_id = ?"),
     ("gift_rewards", "user_id = ?"),
@@ -86,6 +87,7 @@ NOT_USER_DATA = frozenset(
         "price_catalog_offers", "price_catalog_state", "banned_identities", "announcements",
         "sponsor", "gifts_opened", "reset_card_grants", "backup_runs", "record_rollups",
         "taken_rollups", "call_rollups", "spread_rollups", "achievements_launched",
+        "community_news", "community_news_image", "community_news_image",
     }
 )
 """Every other table: the story corpus, the embedded text set, the calls to outside

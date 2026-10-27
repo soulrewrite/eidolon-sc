@@ -151,11 +151,18 @@ class _LookupStore:
         return self._db
 
     def load(self, ttl: timedelta) -> dict[str, dict[str, Any] | None]:
-        """整表读进内存；「没有」超过 `ttl` 的不载入（当成没查过）。"""
-        with self._lock:
-            rows = self._connect().execute(
-                "SELECT title, found, checked_at FROM music_lookup"
-            ).fetchall()
+        """整表读进内存；「没有」超过 `ttl` 的不载入（当成没查过）。
+
+        缓存文件打不开（目录只读、盘满）不该拖垮服务：当作没有缓存，查询照常走网络。
+        """
+        try:
+            with self._lock:
+                rows = self._connect().execute(
+                    "SELECT title, found, checked_at FROM music_lookup"
+                ).fetchall()
+        except (OSError, sqlite3.Error) as error:
+            log.warning("歌曲缓存放不开，这次就当没有：%r", error)
+            return {}
         now = datetime.now(UTC)
         found: dict[str, dict[str, Any] | None] = {}
         for title, payload, checked_at in rows:
@@ -181,15 +188,19 @@ class _LookupStore:
         if not rows:
             return
         stamp = datetime.now(UTC).isoformat()
-        with self._lock:
-            db = self._connect()
-            db.executemany(
+        try:
+            with self._lock:
+                db = self._connect()
+                db.executemany(
                 "INSERT INTO music_lookup (title, found, checked_at) VALUES (?, ?, ?)"
                 " ON CONFLICT(title) DO UPDATE SET found = excluded.found,"
                 " checked_at = excluded.checked_at",
-                [(title, json.dumps(found, ensure_ascii=False), stamp) for title, found in rows],
-            )
-            db.commit()
+                    [(title, json.dumps(found, ensure_ascii=False), stamp)
+                     for title, found in rows],
+                )
+                db.commit()
+        except (OSError, sqlite3.Error) as error:
+            log.warning("歌曲缓存写不进去：%r", error)
 
     def close(self) -> None:
         with self._lock:

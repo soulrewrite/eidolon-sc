@@ -37,6 +37,9 @@ from eidolon.announcements import Announcements
 from eidolon.backup import Backups
 from eidolon.call import Calls, Speech, SpeechServices
 from eidolon.characters import Character, load_characters
+from eidolon.producer import effective_timezone
+from eidolon.community_news import CommunityNews, keep_watching
+from eidolon.schedules import Schedules
 from eidolon.gift_catalog import Gift, check_liked_gifts, gifts_path, load_gift_catalog
 from eidolon.gifts import Gifts
 from eidolon.greetings import FishAudioSettings
@@ -142,6 +145,13 @@ class Backend:
     it with, the text then being all there is."""
     world: World | None = None
     """The world setting; None without its data file."""
+    community: CommunityNews | None = None
+    """The community news she keeps up with (fork); None when it is off."""
+    news_timezone: Callable[[], str] = lambda: "Asia/Tokyo"
+    """Which time zone the news windows are read in (the latest conversation's producer)."""
+    schedules: Schedules | None = None
+    """Her days (fork): what she is doing now, from `characters/routines.toml`; None when the
+    deployment has no routines file, and she goes without a schedule."""
     _closers: list[Closer] = field(default_factory=list, repr=False)
     _keeping_fresh: asyncio.Task[None] | None = field(default=None, repr=False)
     _probing: asyncio.Task[None] | None = field(default=None, repr=False)
@@ -158,6 +168,14 @@ class Backend:
         self._probing = asyncio.create_task(self.service_status.keep_probing())
         self._reaching_out = asyncio.create_task(self.reach_outs.keep_reaching_out())
         self._writing_letters = asyncio.create_task(self.letters.keep_writing())
+        if self.community is not None:
+            self._watching_news = asyncio.create_task(
+                keep_watching(
+                    self.community,
+                    self.reach_outs,
+                    self.news_timezone,
+                )
+            )
 
     async def aclose(self) -> None:
         """Close what `build` opened, last opened first."""
@@ -357,10 +375,24 @@ def build(
         settings.database_path, clock, lambda: config.affinity_on, gifts, activity
     )
     closers.append(happenings.close)
+    # fork（她的日常）：表总是建（用户数据里要有它），没有 routines.toml 时她就没有日程可讲
+    schedules = Schedules(
+        settings.database_path, characters, clock, world,
+        routines=settings.characters_path.parent / "routines.toml",
+    )
+    closers.append(schedules.close)
+    def news_timezone() -> str:
+        current = store.current_conversations()
+        if not current:
+            return "Asia/Tokyo"
+        return effective_timezone(store.get_profile(current[0].conversation.user_id), None)
+
+    community = CommunityNews(settings.database_path, store, clock)
+    closers.append(community.close)
     engine = ConversationEngine(
         store, characters, gift_catalog, memories, titles, clock, retrieval,
         lambda: config.history_turns, world, affinities, config.affinity_judge(), photos,
-        happenings,
+        happenings, schedules,
     )
     own_keys = OwnKeys(
         own_llm_service, config, activity, speech, exempting=lambda: config.exempting_keys,
@@ -441,5 +473,8 @@ def build(
         message_speech=message_speech,
         voice_favorites=voice_favorites,
         world=world,
+        community=community,
+        news_timezone=news_timezone,
+        schedules=schedules,
         _closers=closers,
     )

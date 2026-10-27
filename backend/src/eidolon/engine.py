@@ -132,6 +132,7 @@ from eidolon.memory import Memories, last_turn_query
 from eidolon.own_keys import OwnKeyFailed
 from eidolon.photos import CANNOT_SEND, NOT_RECEIVED, Eligibility, Photos, photo_turn
 from eidolon.producer import effective_timezone, local_date, now_prompt, producer_prompt
+from eidolon.schedules import Schedules
 from eidolon.reply_format import (
     format_instructions,
     PhotoTagged,
@@ -508,13 +509,22 @@ REACH_OUT_RULES = """# 先开口
 制作人这会儿没在和你说话，你想先给他发几句。
 - 由头你自己挑：先接着你们最近聊过的事，或者他最近的近况；其次才是现在的时间、他的生日。
 - 不要只发一句空的问候，比如「早安」「在吗」「想你了」，要有具体想说的事。
-- 写一到两段。
+- **只写一到两句**（不超过 60 个假名），像随手发来的一条消息；想说的话多就留到下一条，不要一次堆好几件事。
+- 不要连着发好几段，也不要在一段里塞两三件事。
 - 别和你前几次先开口时用一样的开头、一样的由头。
 - 说到你自己那边，只说练习、拍摄、事务所的工作这类平常的事，或者世界设定里有日期的 live 和新歌；不要编具体的剧情，也不要说别的偶像做了什么。
 - 不发照片，也不说要给他发照片、要给他打电话。
 - 让他好接话，但不必用问句结尾。"""
 """How she is to reach out (GLOSSARY.md「搭话」), told her last in what changes from turn to turn,
 where what retrieval finds would be."""
+
+BATH_RULES = """# 她在洗澡
+这条消息是她**洗完出来**才看到的：第一句说自己刚洗完，别写她一边泡着一边回消息。
+说到洗澡只到「在泡澡」「刚洗完」这个程度，不说细节；这会儿也不发照片。"""
+
+BATH_RULES_COUPLE = """# 她在洗澡（两个人是恋人）
+这条消息是她洗完出来才看到的：第一句说自己刚洗完（头发还湿着、裹着毛巾这类都可以）。
+两个人是恋人，可以比平常亲近得多，不必收着——但**不写露骨或下流的内容**，不写身体细节。"""
 
 LETTER_RULES = """# 写一封信
 制作人不在你面前。你要给他写一封信，等他晚上看到。
@@ -540,6 +550,16 @@ LETTER_DAYS = {
 WANTS_TO_REACH_OUT = "（制作人这会儿没在和你说话。你想先给他发几句。）"
 """Where the user's words would be as she reaches out, after the events since the last turn:
 so every protocol takes the prompt, ending with the user, as narration does."""
+
+
+def _about_something(about: str) -> str:
+    """她在官方账号上看到的消息（fork，社区关注）：跟他说这个，但别念新闻稿。"""
+    return (
+        "# 你看到的\n"
+        f"你在官方账号上看到这条：{about}\n"
+        "- 想跟他说这件事，但别复述新闻稿、别堆信息：说你自己的反应、你在意的那一点。\n"
+        "- 一两句就够，像随手发来的一条消息。"
+    )
 
 
 def _topic_waiting(line: str) -> str:
@@ -633,6 +653,7 @@ class ConversationEngine:
         affinity_judge: AffinityJudge | None = None,
         photos: Photos | None = None,
         happenings: Happenings | None = None,
+        schedules: Schedules | None = None,
     ) -> None:
         """Without `retrieval`, turns carry no story or character facts and find no
         memories. Each turn reads only the conversation's latest turns, as many as
@@ -656,7 +677,16 @@ class ConversationEngine:
         self._affinity_judge = affinity_judge
         self._photos = photos
         self._happenings = happenings
+        self._schedules = schedules
         self._ended_listeners: list[Callable[[str, EndsFor], None]] = []
+
+    def _schedule_lines(self, conversation: Conversation, timezone: str) -> list[str]:
+        """她今天在做什么（fork，`schedules.py`）；没开这个玩法时是空的。"""
+        if self._schedules is None:
+            return []
+        return self._schedules.prompt_lines(
+            conversation.user_id, conversation.character_id, timezone
+        )
 
     def on_ended(self, listener: Callable[[str, EndsFor], None]) -> None:
         """Have `listener` told the conversation's id, and why, as she ends one, once it is
@@ -829,6 +859,7 @@ class ConversationEngine:
         being_couple = (
             [couple_prompt(coupled, character.couple_note, timezone)] if coupled else []
         )
+        bathing = self._bath_rules(conversation, timezone, coupled is not None)
         # fork（记忆 A）：他说的「叫我界君」「白天别发消息」这类相处的方式，每轮全量带着，
         # 不像别的记忆那样要检索到才用得上。
         agreements = [section] if (section := await memory.notes()) else []
@@ -840,11 +871,13 @@ class ConversationEngine:
                 now_prompt(
                     profile, now, timezone, "in_call" if in_call is not None else "typing",
                     affinity_lines, last_contact,
+                    self._schedule_lines(conversation, timezone),
                 ),
                 *being_couple,
                 *agreements,
                 *([CONFESSING[confession]] if confession else []),
                 *([about_photo] if about_photo else []),
+                *([bathing] if bathing else []),
             ],
             [p for p in (retrieved.memories_prompt, retrieved.prompt) if p],
             text, voiced_by,
@@ -961,7 +994,11 @@ class ConversationEngine:
         )
 
     async def reach_out(
-        self, conversation: Conversation, llm: ChatLLM, topic: str | None = None
+        self,
+        conversation: Conversation,
+        llm: ChatLLM,
+        topic: str | None = None,
+        about: str | None = None,
     ) -> list[Segment]:
         """What she says first in `conversation`, the user not talking to her (GLOSSARY.md
         「搭话」), on `llm`: its segments, as the model wrote them, delivery cues and all. Her
@@ -1002,8 +1039,10 @@ class ConversationEngine:
                     profile, now, timezone, "apart",
                     affinity_prompt(affinity.tier, None) if affinity is not None else [],
                     self._store.last_contact(conversation.user_id, conversation.character_id),
+                    self._schedule_lines(conversation, timezone),
                 ),
                 *([_topic_waiting(topic)] if topic else []),
+                *([_about_something(about)] if about else []),
             ],
             [*([memories] if memories else []), REACH_OUT_RULES],
             WANTS_TO_REACH_OUT, None,
@@ -1054,6 +1093,7 @@ class ConversationEngine:
                     profile, now, timezone, "apart",
                     affinity_prompt(affinity.tier, None) if affinity is not None else [],
                     self._store.last_contact(conversation.user_id, conversation.character_id),
+                    self._schedule_lines(conversation, timezone),
                 ),
                 *([LETTER_DAYS[trigger]] if trigger in LETTER_DAYS else []),
             ],
@@ -1087,6 +1127,20 @@ class ConversationEngine:
         if not has_judge or self._photos is None:
             return None
         return self._photos.eligibility(character, conversation.user_id, own)
+
+    def _bath_rules(self, conversation: Conversation, timezone: str, coupled: bool) -> str | None:
+        """她刚洗完澡时要说的话（fork）：**一段洗澡只说一次**，分不分恋人语气差很多。
+
+        以前每回合都说「刚洗完」，于是一晚上说三四遍，像失忆。现在只有这一段的第一次
+        说话带上它，之后就是正常聊天。
+        """
+        if self._schedules is None:
+            return None
+        if not self._schedules.fresh_from_bath(
+            conversation.user_id, conversation.character_id, timezone
+        ):
+            return None
+        return BATH_RULES_COUPLE if coupled else BATH_RULES
 
     async def photo_came_out(self, photo_id: str, user_id: str) -> Photo | None:
         """The photo a turn of the user's sent (`photo`), once it has come out, sent or not,

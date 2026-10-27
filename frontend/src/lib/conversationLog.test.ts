@@ -83,6 +83,7 @@ describe("conversationLog", () => {
       affinity: null,
       photo: null,
       reachOut: true,
+      image: null,
     });
     expect(log.entries[1]).not.toHaveProperty("reachOut");
   });
