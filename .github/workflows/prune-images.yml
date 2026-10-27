@@ -4,6 +4,10 @@
 # 2026-10-23 手工清到 13 个，5 天后又涨回 42 个 —— 靠人记不住，交给定时任务。
 #
 # 用的是仓库内置的 GITHUB_TOKEN（permissions: packages: write），不需要任何 PAT。
+#
+# **别人的 fork 不会受影响**：job 上有一条 `github.repository_owner == 'soulrewrite'`
+# 的门禁，在 fork 里 owner 是别人，整个 job 直接跳过（fork 的 Actions 默认也关着）。
+# 也就是说这条清理只在本仓库生效，不会去动别人账号下的同名包。
 name: 清理旧镜像
 
 on:
@@ -25,6 +29,9 @@ concurrency:
 
 jobs:
   prune:
+    # 只在本仓库跑：fork 出去的仓库 owner 不是 soulrewrite，整段跳过，
+    # 免得去清别人账号下同名的镜像
+    if: github.repository_owner == 'soulrewrite'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     strategy:
