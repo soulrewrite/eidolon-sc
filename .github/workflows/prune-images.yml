@@ -1,0 +1,43 @@
+# 清理 GHCR 上的旧镜像：每个包只留最近 5 个版本 + main。
+#
+# 为什么要有它：每次 push 到 main 都会出一个新镜像 tag，后端单个 2.5GB。
+# 2026-10-23 手工清到 13 个，5 天后又涨回 42 个 —— 靠人记不住，交给定时任务。
+#
+# 用的是仓库内置的 GITHUB_TOKEN（permissions: packages: write），不需要任何 PAT。
+name: 清理旧镜像
+
+on:
+  schedule:
+    # 每周一 03:10 UTC（北京时间 11:10）
+    - cron: "10 3 * * 1"
+  workflow_dispatch:
+  # 这个文件本身改动时也跑一次，省得等一周才验证
+  push:
+    paths:
+      - ".github/workflows/prune-images.yml"
+
+permissions:
+  packages: write
+
+concurrency:
+  group: prune-images
+  cancel-in-progress: false
+
+jobs:
+  prune:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      matrix:
+        package:
+          - eidolon-sc-backend
+          - eidolon-sc-frontend
+    steps:
+      - uses: actions/delete-package-versions@v5
+        with:
+          package-name: ${{ matrix.package }}
+          package-type: container
+          # 留最近 5 个（含最近一次构建）；比这更旧的版本删掉
+          min-versions-to-keep: 5
+          # `main` 那种滚动 tag 不删（我们的 CI 目前只打 sha-*，留着无妨）
+          ignore-versions: "^main$"
