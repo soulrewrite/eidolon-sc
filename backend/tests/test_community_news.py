@@ -12,7 +12,9 @@ from eidolon.store import Store
 from eidolon.community_news import (
     SC_WEIGHT,
     CommunityNews,
+    about,
     parse_lantis,
+    parse_release_details,
 )
 
 PAGE = """
@@ -109,3 +111,39 @@ def test_an_old_release_can_be_skipped(tmp_path):
     old = news.next_to_push(since=datetime(2026, 10, 20, tzinfo=UTC))
     assert old is None
     news.close()
+
+
+DETAIL = """
+<p>2026.09.26 RELEASE THE IDOLM@STER SHINY COLORS SOLO COLLECTION</p>
+<p>アーティスト：シャイニーカラーズ 杜野凛世（CV.丸岡和佳奈）、大崎甘奈（CV.黒木ほの香）
+発売日：2026/9/26 品番：LACZ-10374 価格：2,640円</p>
+<p>1.クローバー (杜野凛世Ver.) 2.クローバー (大崎甘奈Ver.) 3.SOLAR WAY (郁田はるきVer.)
+『THE IDOLM@STER SHINY COLORS SOLO COLLECTION』の会場にて販売されます。</p>
+"""
+
+
+def test_a_release_page_tells_whose_album_it_is():
+    """她得知道这张碟是谁的——不然聊起来像不认识自己事务所的人。"""
+    artist, tracks = parse_release_details(DETAIL)
+    assert artist is not None and "杜野凛世" in artist
+    assert len(tracks) == 3
+    assert tracks[0] == "クローバー (杜野凛世Ver.)"
+
+
+def test_what_she_is_told_names_the_artist_and_the_tracks():
+    from eidolon.community_news import Candidate
+
+    told = about(
+        Candidate(
+            url="https://example.test/x",
+            title="SOLO COLLECTION",
+            source="lantis",
+            published=date(2026, 9, 26),
+            weight=SC_WEIGHT,
+            artist="シャイニーカラーズ 杜野凛世",
+            tracks=("クローバー", "SOLAR WAY"),
+        )
+    )
+    assert "シャイニーカラーズ 杜野凛世" in told
+    assert "クローバー" in told
+    assert "2026-09-26" in told

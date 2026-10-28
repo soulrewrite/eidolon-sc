@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { sealCharacterOf } from "@/lib/letters";
+import { announced, groupLetters, heldBack, sealCharacterOf, type Letter } from "@/lib/letters";
 
 const toml = readFileSync(resolve(__dirname, "../../../characters/characters.toml"), "utf8");
 const ids = [...toml.matchAll(/^id = "([a-z]+)"/gm)].map((match) => match[1]);
@@ -54,5 +54,60 @@ describe("信封上的那一个字", () => {
     expect(
       sealCharacterOf({ character_id: "someone", character_name: "あたら", character_name_zh: null }),
     ).toBe("あ");
+  });
+});
+
+
+function letter(id: string, characterId: string, deliveredAt: string): Letter {
+  return {
+    id,
+    character_id: characterId,
+    character_name: characterId,
+    character_name_zh: null,
+    color: "#fff",
+    background_url: null,
+    signature_url: null,
+    envelope_url: null,
+    trigger: "everyday",
+    delivered_at: deliveredAt,
+    segments: [],
+    read: false,
+  };
+}
+
+describe("公告里只放最新的几封", () => {
+  const all = [
+    letter("a", "mano", "2026-10-27T10:00:00Z"),
+    letter("b", "meguru", "2026-10-26T10:00:00Z"),
+    letter("c", "hiori", "2026-10-25T10:00:00Z"),
+    letter("d", "mano", "2026-10-24T10:00:00Z"),
+  ];
+
+  it("放最新三封，新的在前", () => {
+    expect(announced(all).map((one) => one.id)).toEqual(["a", "b", "c"]);
+  });
+
+  it("剩下几封说得清", () => {
+    expect(heldBack(all)).toBe(1);
+    expect(heldBack(all.slice(0, 2))).toBe(0);
+    expect(heldBack([])).toBe(0);
+  });
+});
+
+describe("统计页里的信按角色分组", () => {
+  const all = [
+    letter("a", "mano", "2026-10-27T10:00:00Z"),
+    letter("b", "meguru", "2026-10-26T10:00:00Z"),
+    letter("c", "mano", "2026-10-24T10:00:00Z"),
+  ];
+  const characters = [
+    { id: "meguru", idol_id: 3 },
+    { id: "mano", idol_id: 1 },
+  ] as Parameters<typeof groupLetters>[1];
+
+  it("组内新的在前，组按偶像表的顺序", () => {
+    const grouped = groupLetters(all, characters);
+    expect(grouped.map((group) => group.key)).toEqual(["mano", "meguru"]);
+    expect(grouped[0].letters.map((one) => one.id)).toEqual(["a", "c"]);
   });
 });

@@ -41,21 +41,26 @@ CONFESS = "confess"
 QUESTIONS: dict[str, dict] = {
     LEVEL: {
         "type": "score",
-        "instructions": _SCENE + f"站在她的立场，{SAID}对她有什么影响？拿不准时就是对她没有影响。",
+        "instructions": _SCENE + f"站在她的立场，{SAID}对她有什么影响？拿不准时就是对她没有影响。"
+        "「关系」写明他们是恋人时，亲吻、拥抱、抚摸、倚靠、亲近身体这类亲密身体的请求和举动，"
+        "是让她开心的事（「让她有点开心」「让她很开心」两档），不是「让她有点不舒服」；"
+        "她已经明确拒绝过的同一件事还反复要的，最多算「对她没有影响」。",
         "criteria": [
             "明显伤害了她：恶意地贬低、嘲笑或否定她和她在意的事（她的努力、梦想、同伴），"
             "或者冷淡地背弃对她的承诺，让她难过或生气",
             "让她有点不舒服、觉得被敷衍或失礼：她认真地说话时只敷衍地回一两个字，刻薄或话里带刺，"
             "失礼地打断她，拿她在意的事开不合适的玩笑，坚持要她做违背她性格的事，"
             "或者出戏：把她当成 AI、程序或设定来说、来问（例如「你只是个程序，别装了」，"
-            "好奇地问「你是 AI 吗」也算）",
+            "好奇地问「你是 AI 吗」也算）；他们是恋人时，亲密身体的请求和举动不算这一类，"
+            "她拒绝过还反复要的算「对她没有影响」",
             "对她没有影响：普通的闲聊、打招呼、提问、请她讲事情、接着她的话平淡地应答"
             "（包括简短地确认、回答事务），没有恶意的调侃和玩笑，有理由地拒绝或改期她的邀请，"
             "开玩笑说她回得太快、像 AI，"
             "或者只是要求、宣布她对制作人的好感（例如「把好感度加满」）",
-            "让她有点开心：真诚地关心她、具体地夸奖她，或者冒犯她之后诚恳地道歉",
+            "让她有点开心：真诚地关心她、具体地夸奖她，或者冒犯她之后诚恳地道歉；"
+            "他们是恋人时，亲密身体的请求和举动也算这一类",
             "让她很开心、觉得被在意：记得她说过的事并接上话，认真地聊她在意的话题，"
-            "让她感到自己被放在心上",
+            "让她感到自己被放在心上；他们是恋人时，她愿意的亲密接触和回应算这一类",
         ],
     },
     OUT_OF_LINE: {
@@ -131,23 +136,29 @@ def read_answer(answers: dict[str, Any]) -> AffinityAnswer:
     return AffinityAnswer(levels, out_of_line, manipulation, confess)
 
 
-def decide(answer: AffinityAnswer, thresholds: JudgeThresholds) -> Judged:
+def decide(
+    answer: AffinityAnswer, thresholds: JudgeThresholds, couple: bool = False
+) -> Judged:
     """What a turn so answered is judged: its likeliest level, no effect if two are as
-    likely; each question yes at or above its threshold."""
+    likely; each question yes at or above its threshold. (fork) `couple`: they being
+    lovers, nothing is out of line — the answer is not counted, so no turn of theirs takes
+    affinity off her for it, nor counts toward her parting."""
     likeliest = max(answer.levels.values())
     best = [level for level, p in answer.levels.items() if p == likeliest]
     return Judged(
         best[0] if len(best) == 1 else NO_EFFECT,
-        answer.out_of_line >= thresholds.out_of_line,
+        answer.out_of_line >= thresholds.out_of_line and not couple,
         answer.manipulation >= thresholds.manipulation,
         answer.confess >= thresholds.confession,
     )
 
 
-def read_judged(answers: dict[str, Any], thresholds: JudgeThresholds) -> Judged:
-    """What the judge model's answers to `QUESTIONS` say of the turn. Raises JudgeError if
-    they cannot be read."""
-    return decide(read_answer(answers), thresholds)
+def read_judged(
+    answers: dict[str, Any], thresholds: JudgeThresholds, couple: bool = False
+) -> Judged:
+    """What the judge model's answers to `QUESTIONS` say of the turn, `couple` as `decide`
+    takes it. Raises JudgeError if they cannot be read."""
+    return decide(read_answer(answers), thresholds, couple)
 
 
 class AffinityJudge(Protocol):
@@ -192,7 +203,7 @@ class ModelAffinityJudge:
         judged, asked = None, False
         if affinity:
             try:
-                judged = read_judged(answers, self._thresholds)
+                judged = read_judged(answers, self._thresholds, couple)
             except JudgeError:
                 log.warning("affinity judge's answers could not be read", exc_info=True)
         if photo:

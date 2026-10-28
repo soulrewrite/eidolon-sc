@@ -170,6 +170,8 @@ export const zh = {
     letterChinese: "中文",
     /** 信的蜡封上那个按钮（fork）：点开才看到信纸。 */
     letterOpen: "拆开",
+    /** 公告弹窗里只放最新的几封，其余的去统计页看（fork）。 */
+    lettersMore: (n: number) => `还有 ${n} 封，在设置·统计里`,
     /** 铃铛旁边的服务状态和它打开的小窗口（GLOSSARY.md「服务状态」）；有服务不正常时按钮念后一句。 */
     serviceStatus: "服务状态",
     serviceStatusFailing: "服务状态，有服务不正常",
@@ -679,6 +681,17 @@ export const zh = {
         ranges: { all: "全部", week: "近 7 天", month: "近 30 天" },
         rangeLabel: "按时间筛选",
         emptyRange: "这段时间里还没有收藏",
+      },
+      /** 信（fork）：统计页里的存档，照着「收藏的语音」的样子。 */
+      letters: {
+        title: "收到的信",
+        hint: "亲近以上的角色会在晚上或特殊的日子写信，放在公告里。",
+        count: (n: number) => `${n} 封`,
+        unread: "未读",
+        expand: (name: string, n: number) => `${name}的信，${n} 封`,
+        ranges: { all: "全部", week: "近 7 天", month: "近 30 天" },
+        rangeLabel: "按时间筛选",
+        emptyRange: "这段时间里还没有信",
       },
       /** 分享图（GLOSSARY.md「分享图」）。 */
       share: {

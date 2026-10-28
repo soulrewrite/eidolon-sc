@@ -61,6 +61,7 @@ from eidolon.letters import add_letter_routes
 from eidolon.gifts_api import add_gift_routes
 from eidolon.message_speech import add_message_speech_routes
 from eidolon.photos_api import add_photo_routes
+from eidolon import community_news, planner
 from eidolon.producer import effective_timezone
 from eidolon.sessions import UserId, session_middleware
 from eidolon.sponsor_api import add_sponsor_routes
@@ -668,7 +669,7 @@ def create_app(backend: Backend) -> FastAPI:
             }
 
         @app.post("/api/schedules/write-now")
-        def write_schedule_now(body: ScheduleInput, user_id: UserId) -> dict:
+        async def write_schedule_now(body: ScheduleInput, user_id: UserId) -> dict:
             """开发用：丢掉她今天排好的，立刻重排一份。"""
             if not backend.settings.dev_login:
                 raise HTTPException(403, "只有开发登录能重排安排")
@@ -677,13 +678,24 @@ def create_app(backend: Backend) -> FastAPI:
             timezone = effective_timezone(store.get_profile(user_id), None)
             day = backend.clock().astimezone(ZoneInfo(timezone)).date()
             schedules.forget(user_id, body.character_id, day)
+            # 先让模型写（1A）；写不出来就退回规则版
+            written = await planner.plan_one(
+                backend.engine, backend.config, schedules, characters, backend.world,
+                user_id, body.character_id, day,
+            )
             plan = schedules.ensure(user_id, body.character_id, timezone)
             if plan is None:
                 raise HTTPException(404, "这位还没有作息数据")
-            return {"day": plan.day.isoformat(), "entries": len(plan.entries)}
+            return {
+                "day": plan.day.isoformat(),
+                "entries": len(plan.entries),
+                "written_by": plan.written_by,
+                "model": written,
+            }
 
     if backend.community is not None:
         news = backend.community
+        news_about = community_news.about
 
         @app.get("/api/news/{key}/image")
         def news_image(key: str, user_id: UserId) -> Response:
@@ -712,10 +724,10 @@ def create_app(backend: Backend) -> FastAPI:
                     break
             if conversation is None:
                 return {"pushed": False, "reason": "没有对话"}
-            when = f"（{candidate.published}）" if candidate.published else ""
             image = await news.image_of(candidate)
+            candidate = news.next_to_push() or candidate
             said = await backend.reach_outs.say_about(
-                conversation, candidate.title + when, image=image
+                conversation, news_about(candidate), image=image
             )
             if not said:
                 return {"pushed": False, "reason": "她这会儿没发出来"}

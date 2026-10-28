@@ -18,7 +18,7 @@ import {
   unread,
   type Announcement,
 } from "@/lib/announcements";
-import { listLetters, markLetterRead, type Letter } from "@/lib/letters";
+import { announced, heldBack, listLetters, markLetterRead, type Letter } from "@/lib/letters";
 import { AnnouncementsBellIcon } from "@/theme/icons";
 
 const t = copy.conversationList;
@@ -135,12 +135,17 @@ export function Announcements({ userId }: { userId: string | null }) {
           <section className="-mx-4 px-4">
             <p className="mb-1 text-meta text-muted-foreground">{t.letters}</p>
             <ul>
-              {letters.map((letter) => (
+              {announced(letters).map((letter) => (
                 <li key={letter.id}>
                   <LetterRow letter={letter} onClick={() => setOpenLetter(letter)} />
                 </li>
               ))}
             </ul>
+            {heldBack(letters) > 0 && (
+              <p className="mt-1 text-meta text-muted-foreground">
+                {t.lettersMore(heldBack(letters))}
+              </p>
+            )}
             <Separator className="my-3" />
           </section>
         )}

@@ -11,6 +11,7 @@ import { SettingsPane } from "@/components/settings/SettingsPane";
 import { Heatmap } from "@/components/stats/Heatmap";
 import { HourChart } from "@/components/stats/HourChart";
 import { ShareButton } from "@/components/stats/ShareButton";
+import { LetterArchive } from "@/components/stats/LetterArchive";
 import { VoiceFavorites } from "@/components/stats/VoiceFavorites";
 import { Button } from "@/components/ui/button";
 import { Empty, EmptyContent, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
@@ -163,6 +164,7 @@ export function StatsSettings() {
             </dl>
           </section>
         )}
+        <LetterArchive characters={characters} />
         {favorites !== null && (
           <VoiceFavorites
             favorites={favorites}

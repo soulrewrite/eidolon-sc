@@ -42,7 +42,9 @@ CREATE TABLE IF NOT EXISTS community_news (
     published TEXT,
     weight INTEGER NOT NULL,
     fetched_at TEXT NOT NULL,
-    pushed_at TEXT
+    pushed_at TEXT,
+    artist TEXT,
+    tracks TEXT
 );
 CREATE INDEX IF NOT EXISTS community_news_by_pushed ON community_news(pushed_at);
 CREATE TABLE IF NOT EXISTS community_news_image (
@@ -81,6 +83,8 @@ class Candidate:
     source: str
     published: date | None
     weight: int
+    artist: str | None = None
+    tracks: tuple[str, ...] = ()
 
 
 def parse_lantis(page: str) -> list[Candidate]:
@@ -117,6 +121,31 @@ def parse_lantis(page: str) -> list[Candidate]:
     return out
 
 
+def _plain(page: str) -> str:
+    """页面变成一行字：去脚本、去标签、压空白。"""
+    text = re.sub(r"<script.*?</script>", " ", page, flags=re.S)
+    text = re.sub(r"<style.*?</style>", " ", text, flags=re.S)
+    text = re.sub(r"<[^>]+>", " ", text)
+    return re.sub(r"\s+", " ", html_module.unescape(text)).strip()
+
+
+def parse_release_details(page: str) -> tuple[str | None, tuple[str, ...]]:
+    """碟页上的**艺人**和**曲目**（`アーティスト：…`、`1.曲名 2.曲名`）。
+
+    她得知道这张碟是谁的——不然聊起来像不认识自己事务所的人。
+    """
+    text = _plain(page)
+    artist = None
+    found = re.search(r"アーティスト：(.+?) 発売日：", text)
+    if found is not None:
+        artist = found.group(1).strip()
+    tracks: tuple[str, ...] = ()
+    numbered = re.findall(r"(?:^| )(\d{1,2})\.([^ ](?:[^0-9]|\d(?!\.))+?)(?=\s+\d{1,2}\.|\s*『|\s*■|$)", text)
+    if numbered:
+        tracks = tuple(title.strip() for _, title in numbered[:20])
+    return artist, tracks
+
+
 def _hash(url: str) -> str:
     return hashlib.sha256(url.encode("utf-8")).hexdigest()[:32]
 
@@ -137,6 +166,10 @@ class CommunityNews:
         self._db.row_factory = sqlite3.Row
         with self._lock, self._db:
             self._db.executescript(_SCHEMA)
+            columns = {row[1] for row in self._db.execute("PRAGMA table_info(community_news)")}
+            for name in ("artist", "tracks"):  # 老库补列
+                if name not in columns:
+                    self._db.execute(f"ALTER TABLE community_news ADD COLUMN {name} TEXT")
         self._client = httpx.AsyncClient(
             timeout=httpx.Timeout(20, connect=8),
             headers={"User-Agent": "Mozilla/5.0 (compatible; eidolon-sc community news)"},
@@ -191,10 +224,17 @@ class CommunityNews:
         """
         key = _hash(candidate.url)
         with self._lock:
+            has_image = (
+                self._db.execute(
+                    "SELECT 1 FROM community_news_image WHERE url_hash = ?", (key,)
+                ).fetchone()
+                is not None
+            )
             row = self._db.execute(
-                "SELECT 1 FROM community_news_image WHERE url_hash = ?", (key,)
+                "SELECT artist FROM community_news WHERE url_hash = ?", (key,)
             ).fetchone()
-        if row is not None:
+        has_meta = row is not None and row["artist"] is not None
+        if has_image and has_meta:
             return key
         try:
             page = await self._client.get(candidate.url)
@@ -202,6 +242,14 @@ class CommunityNews:
         except httpx.HTTPError as error:
             log.warning("取消息页失败（%s）：%r", candidate.url, error)
             return None
+        artist, tracks = parse_release_details(page.text)
+        with self._lock, self._db:
+            self._db.execute(
+                "UPDATE community_news SET artist = ?, tracks = ? WHERE url_hash = ?",
+                (artist, "｜".join(tracks) if tracks else None, key),
+            )
+        if has_image:
+            return key
         found = _OG_IMAGE.search(page.text)
         if found is None:
             return None
@@ -253,6 +301,8 @@ class CommunityNews:
             source=row["source"],
             published=date.fromisoformat(row["published"]) if row["published"] else None,
             weight=row["weight"],
+            artist=row["artist"],
+            tracks=tuple(row["tracks"].split("｜")) if row["tracks"] else (),
         )
 
     def mark_pushed(self, candidate: Candidate) -> None:
@@ -290,7 +340,8 @@ class CommunityNews:
         if conversation is None:
             return False
         image = await self.image_of(candidate)
-        said = await reach_outs.say_about(conversation, _about(candidate), image=image)
+        candidate = self.next_to_push() or candidate  # 取过歌手和曲目再读一次
+        said = await reach_outs.say_about(conversation, about(candidate), image=image)
         if not said:
             return False
         self.mark_pushed(candidate)
@@ -313,9 +364,17 @@ async def keep_watching(news: CommunityNews, reach_outs, timezone_for) -> None:
             log.exception("推送社区消息失败")
 
 
-def _about(candidate: Candidate) -> str:
-    when = f"（{candidate.published.isoformat()}）" if candidate.published else ""
-    return f"{candidate.title}{when}"
+def about(candidate: Candidate) -> str:
+    """她看到的那条消息，带着**是谁的碟、里面有什么歌**。"""
+    when = f"（{candidate.published.isoformat()} 发售）" if candidate.published else ""
+    about = f"『{candidate.title}』{when}"
+    if candidate.artist:
+        about += f"，艺人：{candidate.artist}"
+    if candidate.tracks:
+        shown = "、".join(candidate.tracks[:4])
+        more = f" 等 {len(candidate.tracks)} 首" if len(candidate.tracks) > 4 else ""
+        about += f"，收录：{shown}{more}"
+    return about
 
 
 async def _most_recent(store: Store, now: datetime):

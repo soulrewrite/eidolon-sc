@@ -4,7 +4,8 @@ start when a character is none of its idols and none of the office's staff."""
 
 import json
 import logging
-from datetime import UTC, datetime
+from dataclasses import replace
+from datetime import UTC, date, datetime
 
 import pytest
 
@@ -465,3 +466,32 @@ def test_every_character_in_the_repository_is_one_of_the_idols_or_staff_in_its_w
     assert world is not None
     world.check_characters(load_characters(REPO_CHARACTERS / "characters.toml"), path)
     assert len(world.units) == 8
+
+
+def test_she_knows_whose_birthday_it_is(tmp_path):
+    """别人生日以前只能靠猜：真乃把円香的生日说成了制作人的。现在世界设定里列全。"""
+    path = tmp_path / "world.json"
+    path.write_text(json.dumps({"as_of": "2026-10-27", "office": {"name": "283", "staff": []},
+                                "units": [], "idols": [], "releases": [], "songs": [],
+                                "lives": []}), encoding="utf-8")
+    world = load_world(path)
+    assert world is not None
+    told = replace(world, birthdays={"樋口円香": (10, 27), "櫻木真乃": (4, 25)})
+    prompt = told.prompt("櫻木真乃", date(2026, 10, 28))
+    assert "# 纪念日" in prompt
+    assert "樋口円香 10/27" in prompt
+    assert "樋口円香的生日是昨天" in prompt
+    assert "就说记不清" in prompt
+
+
+def test_birthdays_are_read_from_the_file_beside_the_world(tmp_path):
+    path = tmp_path / "world.json"
+    path.write_text(json.dumps({"as_of": "2026-10-27", "office": {"name": "283", "staff": []},
+                                "units": [], "idols": [], "releases": [], "songs": [],
+                                "lives": []}), encoding="utf-8")
+    (tmp_path / "birthdays.toml").write_text(
+        '"樋口円香" = "10-27"\n"坏数据" = "13-40"\n', encoding="utf-8"
+    )
+    world = load_world(path)
+    assert world is not None
+    assert world.birthdays == {"樋口円香": (10, 27)}

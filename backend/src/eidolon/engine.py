@@ -99,10 +99,11 @@ the judge model read those the user answers, after the last turn, as her latest 
 
 import asyncio
 import logging
+import re
 from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from contextlib import nullcontext
 from dataclasses import asdict, dataclass, field, replace
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 from typing import Literal, ParamSpec, TypeVar
 
@@ -518,6 +519,44 @@ REACH_OUT_RULES = """# 先开口
 """How she is to reach out (GLOSSARY.md「搭话」), told her last in what changes from turn to turn,
 where what retrieval finds would be."""
 
+SCHEDULE_PROMPT = """# 排她今天的安排
+你是{name}。{routine}
+今天 {day}（星期{weekday}）。{note}
+照着下面这些写她今天的安排：
+- 三到六段，每段一行，格式严格是「HH:MM–HH:MM 一句话」。
+- 不要排满：留出空白，让她有闲的时候。
+- 最多两段可以写成临时的变数（临时加练、下雨改到室内、路上耽误了、有人送来点心）。
+- 只写平常的事：练习、课程、拍摄、事务所的杂事、见朋友、休息、吃饭。不要编剧情。
+- **不要写洗澡、泡澡、淋浴**：那件事另有安排。
+- 不要提别的偶像的名字（「和同组合的人一起练习」可以，但不要点名）。
+- 每段六十分钟到三小时，不要写十分钟、二十分钟那种碎段。
+- **最后一段要写到睡前**：收拾东西、关灯、躺下，别让时间表在傍晚就断掉。
+- 第一段从起床后开始，最后一段在睡前结束。
+- 只输出这些行，不要标题、不要解释、不要编号。"""
+
+_SCHEDULE_LINE = re.compile(
+    r"^\s*(\d{1,2})[:：](\d{2})\s*[–\-〜~ー]\s*(\d{1,2})[:：](\d{2})\s+(\S.*?)\s*$"
+)
+
+
+def parse_schedule(text: str) -> list[tuple[str, str]] | None:
+    """模型写的行程：`HH:MM–HH:MM 在做什么`。不合格就是 None（调用方退回规则版）。"""
+    entries: list[tuple[str, str]] = []
+    for line in text.splitlines():
+        found = _SCHEDULE_LINE.match(line)
+        if found is None:
+            continue
+        start_h, start_m, end_h, end_m, what = found.groups()
+        start = f"{int(start_h):02d}:{start_m}"
+        end = f"{int(end_h):02d}:{end_m}"
+        if not (0 <= int(start_h) <= 23 and 0 <= int(end_h) <= 24):
+            continue
+        entries.append((f"{start}–{end}", what.strip()))
+    if not 3 <= len(entries) <= 6:
+        return None
+    return entries
+
+
 BATH_RULES = """# 她在洗澡
 这条消息是她**洗完出来**才看到的：第一句说自己刚洗完，别写她一边泡着一边回消息。
 说到洗澡只到「在泡澡」「刚洗完」这个程度，不说细节；这会儿也不发照片。"""
@@ -525,6 +564,14 @@ BATH_RULES = """# 她在洗澡
 BATH_RULES_COUPLE = """# 她在洗澡（两个人是恋人）
 这条消息是她洗完出来才看到的：第一句说自己刚洗完（头发还湿着、裹着毛巾这类都可以）。
 两个人是恋人，可以比平常亲近得多，不必收着——但**不写露骨或下流的内容**，不写身体细节。"""
+
+BATHED_RULES = """# 你刚洗完澡
+头发还湿着，身上是热的。这一句可以顺口带一下（「刚洗完」「头发还湿着」），
+但只说这一次，别反复提，也别把话题绕回洗澡上。"""
+
+BATHED_RULES_COUPLE = """# 你刚洗完澡（两个人是恋人）
+头发还湿着，睡衣松松垮垮的。可以顺口带一下、亲近一点，但只说这一次，
+**不写露骨或下流的内容**，不写身体细节。"""
 
 LETTER_RULES = """# 写一封信
 制作人不在你面前。你要给他写一封信，等他晚上看到。
@@ -1061,6 +1108,37 @@ class ConversationEngine:
             raise EmptyReply("对话模型没有返回任何内容")
         return parser.complete
 
+    async def schedule_for(
+        self,
+        character: Character,
+        routine: str,
+        day: date,
+        note: str,
+        llm: ChatLLM,
+    ) -> list[tuple[str, str]] | None:
+        """让模型写她今天的安排（fork，1A）：三到六段，每段「时间–时间 在做什么」。
+
+        写不出来（模型答得不成样子、超时）就是 None，调用方退回规则版。
+        """
+        weekday = "一二三四五六日"[day.weekday()]
+        prompt = SCHEDULE_PROMPT.format(
+            name=character.name, routine=routine, day=day.isoformat(),
+            weekday=weekday, note=note,
+        )
+        messages = [
+            ChatMessage("system", "你只输出行程，一行一段，不要寒暄，不要解释。"),
+            ChatMessage("user", prompt),
+        ]
+        chunks: list[str] = []
+        try:
+            async for chunk in llm.stream(messages):
+                if isinstance(chunk, str):
+                    chunks.append(chunk)
+        except Exception as e:
+            log.warning("writing %s's day failed: %s", character.name, type(e).__name__)
+            return None
+        return parse_schedule("".join(chunks))
+
     async def letter(
         self, conversation: Conversation, llm: ChatLLM, trigger: str = "everyday"
     ) -> list[Segment]:
@@ -1136,11 +1214,12 @@ class ConversationEngine:
         """
         if self._schedules is None:
             return None
-        if not self._schedules.fresh_from_bath(
-            conversation.user_id, conversation.character_id, timezone
-        ):
-            return None
-        return BATH_RULES_COUPLE if coupled else BATH_RULES
+        user, character = conversation.user_id, conversation.character_id
+        if self._schedules.fresh_from_bath(user, character, timezone):
+            return BATH_RULES_COUPLE if coupled else BATH_RULES
+        if self._schedules.just_out_of_bath(user, character, timezone):
+            return BATHED_RULES_COUPLE if coupled else BATHED_RULES
+        return None
 
     async def photo_came_out(self, photo_id: str, user_id: str) -> Photo | None:
         """The photo a turn of the user's sent (`photo`), once it has come out, sent or not,

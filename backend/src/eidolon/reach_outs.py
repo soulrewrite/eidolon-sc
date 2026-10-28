@@ -52,6 +52,8 @@ from eidolon.engine import ConversationEngine
 from eidolon.live_config import LiveConfig
 from eidolon.producer import effective_timezone, is_birthday
 from eidolon.randomness import Random
+from eidolon.schedules import Schedules
+from eidolon.world import World
 from eidolon.store import (
     Conversation,
     CurrentConversation,
@@ -140,6 +142,10 @@ CREATE TABLE IF NOT EXISTS reach_outs_off (
 """
 
 
+COUPLE_HONEYMOON = timedelta(days=3)
+"""告白之后这么久，她半夜也会忍不住来说话（fork）。"""
+
+
 class ReachOutsOff(Exception):
     """The deployer has reach-outs off: no user's own switch may be set."""
 
@@ -178,6 +184,8 @@ class ReachOuts:
         clock: Clock,
         random: Random,
         intervals: Mapping[str, tuple[timedelta, timedelta]] | None = None,
+        schedules: "Schedules | None" = None,
+        world: "World | None" = None,
     ) -> None:
         self._store = store
         self._engine = engine
@@ -189,6 +197,8 @@ class ReachOuts:
         self._in_call = in_call
         self._clock = clock
         self._random = random
+        self._schedules = schedules
+        self._world = world
         # fork：间隔可以按部署改（EIDOLON_REACH_OUT_INTERVALS），没写的档位用 INTERVALS。
         self._intervals: dict[str, tuple[timedelta, timedelta]] = {
             str(tier): span for tier, span in INTERVALS.items()
@@ -280,6 +290,8 @@ class ReachOuts:
         if tier is None:
             return None
         zone = ZoneInfo(effective_timezone(self._store.get_profile(conversation.user_id), None))
+        if self._asleep(conversation, zone, now) or self._bathing(conversation, zone, now):
+            return None
         # How many things she has said into this silence: none yet, or the user has answered
         # since the last one. Past what her tier allows, she waits to be answered.
         into_silence = self._count_since(conversation.id, contact, current.reached_out_at)
@@ -322,6 +334,56 @@ class ReachOuts:
             self._put_off(conversation.id, contact, now + self._interval(tier))
             return None
         return _Due(conversation, contact, tier, due, zone, topic)
+
+    def _asleep(self, conversation: Conversation, zone: ZoneInfo, now: datetime) -> bool:
+        """她这会儿是不是已经睡了（fork，按 `schedules` 的作息）。
+
+        睡着就不来搭话——半夜三点收到消息不像正常人。例外只有两条：
+        - **隔天有她出演的 live**：她激动得睡不着，会来说一句；
+        - **刚成为恋人**（告白之后三天内）：那股劲儿还没过去。
+        白天有约定的例外要等「约定」功能做出来，先记在 PLAN 里。
+        """
+        if self._schedules is None:
+            return False
+        plan = self._schedules.ensure(
+            conversation.user_id, conversation.character_id, str(zone)
+        )
+        if plan is None:
+            return False
+        here = now.astimezone(zone).time()
+        if not (here >= plan.sleep or here < plan.wake):
+            return False
+        return not (self._live_tomorrow(conversation, zone, now) or self._just_coupled(conversation, now))
+
+    def _bathing(self, conversation: Conversation, zone: ZoneInfo, now: datetime) -> bool:
+        """她这会儿在浴室里（fork）：不发消息——那不像正常人。"""
+        if self._schedules is None:
+            return False
+        plan = self._schedules.ensure(
+            conversation.user_id, conversation.character_id, str(zone)
+        )
+        if plan is None:
+            return False
+        return _between_local(now.astimezone(zone).time(), plan.bath_at, plan.bath_until)
+
+    def _live_tomorrow(self, conversation: Conversation, zone: ZoneInfo, now: datetime) -> bool:
+        """隔天有她出演的 live。"""
+        if self._world is None:
+            return False
+        tomorrow = (now.astimezone(zone) + timedelta(days=1)).date()
+        return any(
+            day.date == tomorrow and conversation.character_id is not None
+            and self._characters[conversation.character_id].name in day.performers
+            for live in self._world.lives
+            for day in live.days
+        )
+
+    def _just_coupled(self, conversation: Conversation, now: datetime) -> bool:
+        """告白之后三天内：那股劲儿还没过去。"""
+        since = self._affinities.couple_since(
+            conversation.user_id, conversation.character_id
+        )
+        return since is not None and now - since < COUPLE_HONEYMOON
 
     def _open_topic(self, conversation_id: str) -> str | None:
         """What she asked that still waits for an answer (fork): her closing words as she
@@ -508,6 +570,13 @@ class ReachOuts:
             return
         recording.finish("success")
         await asyncio.to_thread(self._store.reach_out_recorded_as, reach_out.id, recording.row_id)
+
+
+def _between_local(clock: time, start: time, end: time) -> bool:
+    """这一刻在不在 start..end 之间（跨午夜也认）。"""
+    if start <= end:
+        return start <= clock < end
+    return clock >= start or clock < end
 
 
 def _at_night(at: datetime, zone: ZoneInfo) -> bool:

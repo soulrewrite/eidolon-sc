@@ -39,6 +39,7 @@ from eidolon.call import Calls, Speech, SpeechServices
 from eidolon.characters import Character, load_characters
 from eidolon.producer import effective_timezone
 from eidolon.community_news import CommunityNews, keep_watching
+from eidolon.planner import keep_planning
 from eidolon.schedules import Schedules
 from eidolon.gift_catalog import Gift, check_liked_gifts, gifts_path, load_gift_catalog
 from eidolon.gifts import Gifts
@@ -157,6 +158,7 @@ class Backend:
     _probing: asyncio.Task[None] | None = field(default=None, repr=False)
     _reaching_out: asyncio.Task[None] | None = field(default=None, repr=False)
     _writing_letters: asyncio.Task[None] | None = field(default=None, repr=False)
+    _planning: asyncio.Task[None] | None = field(default=None, repr=False)
 
     async def start(self) -> None:
         """What is done as the server starts, on its event loop: try the overrides of the
@@ -168,6 +170,13 @@ class Backend:
         self._probing = asyncio.create_task(self.service_status.keep_probing())
         self._reaching_out = asyncio.create_task(self.reach_outs.keep_reaching_out())
         self._writing_letters = asyncio.create_task(self.letters.keep_writing())
+        if self.schedules is not None:
+            self._planning = asyncio.create_task(
+                keep_planning(
+                    self.store, self.engine, self.config, self.schedules, self.clock,
+                    self.characters, self.world,
+                )
+            )
         if self.community is not None:
             self._watching_news = asyncio.create_task(
                 keep_watching(
@@ -412,6 +421,7 @@ def build(
         settings.database_path, store, engine, characters, config, affinities, activity, usage,
         calls.in_call, clock, random or secure_random,
         intervals=settings.reach_out_intervals,
+        schedules=schedules, world=world,
     )
     closers.append(reach_outs.close)
     # fork：信（GLOSSARY.md「信」）。亲近以上的角色，晚上或特殊日子写一封，放在公告里。

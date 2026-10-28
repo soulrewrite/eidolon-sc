@@ -698,7 +698,7 @@ class ModelRetrievalJudge:
         judged = None
         if affinity:
             try:
-                judged = read_judged(answers, self.thresholds)
+                judged = read_judged(answers, self.thresholds, couple)
             except JudgeError:
                 log.warning("affinity judge's answers could not be read", exc_info=True)
         asked = False

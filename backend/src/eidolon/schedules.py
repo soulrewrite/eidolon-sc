@@ -13,6 +13,7 @@ live。模型写的版本排在下一步（`PLAN-20261027-daily-and-news` 第 3 
 
 from __future__ import annotations
 
+import hashlib
 import json
 import random
 import re
@@ -42,11 +43,16 @@ CREATE TABLE IF NOT EXISTS schedules (
     wake TEXT NOT NULL,
     generated_at TEXT NOT NULL,
     bath_told INTEGER NOT NULL DEFAULT 0,
+    bathed_told INTEGER NOT NULL DEFAULT 0,
+    written_by TEXT NOT NULL DEFAULT 'rules',
     PRIMARY KEY (user_id, character_id, day)
 );
 """
 
 REFRESH_HOUR = 5
+
+BATHED_GRACE = timedelta(minutes=20)
+"""洗完这么久之内，第一次说话还能说「刚洗完」。"""
 """过了这个点（用户时区）就当她换了新的一天。"""
 
 VARIABLES = (
@@ -91,22 +97,41 @@ class Plan:
     wake: time
     bath_at: time
     bath_until: time
+    written_by: str = "rules"
+    """`rules`（规则版兜底）还是 `model`（模型写的）。"""
 
 
-def _clock_of(text: str, patterns: Sequence[str], default: time) -> time:
-    """从「23 点左右睡」这种句子里抠出钟点；抠不到就用 `default`。"""
-    for pattern in patterns:
-        found = re.search(pattern, text)
-        if found is None:
-            continue
-        hour = int(found.group(1))
-        half = "半" in found.group(0)
-        minute = 30 if half else 0
-        # 「凌晨两点」这种写法：小于 5 点的都算凌晨
-        if hour > 23:
-            continue
-        return time(hour, minute)
-    return default
+def _clock_in(clause: str, marker: str) -> time | None:
+    """在**同一个分句**里找「N 点(半) …标记」的钟点。
+
+    以前在整句里搜，会跨过分号：「0 点前后睡、6 点前后起」被读成「0 点起」，
+    于是她的起床时间变成 00:00，睡觉窗口整天都是。
+    """
+    # 时间要紧挨着标记词：「0 点前后睡、6 点前后起」不能把 0 读成起床时间
+    found = re.search(rf"(\d{{1,2}})\s*点(半)?[^0-9]{{0,6}}?{marker}", clause)
+    if found is None:
+        return None
+    hour = int(found.group(1))
+    if not 0 <= hour <= 23:
+        return None
+    return time(hour, 30 if found.group(2) else 0)
+
+
+def _sleep_and_wake(text: str) -> tuple[time, time]:
+    """从作息里读「几点睡」「几点起」；读不出来或明显不对就用 23:00 / 7:00。"""
+    clauses = [part for part in re.split(r"[；;。]", text) if part.strip()]
+    session: time | None = None
+    wake: time | None = None
+    for clause in clauses:
+        if session is None and "睡" in clause:
+            session = _clock_in(clause, "睡")
+        if wake is None and "起" in clause:
+            wake = _clock_in(clause, "起")
+    if session is None or not (session.hour >= 19 or session.hour <= 4):
+        session = time(23, 0)
+    if wake is None or not (4 <= wake.hour <= 11):
+        wake = time(7, 0)
+    return session, wake
 
 
 def read_routines(path: Path) -> dict[str, Routine]:
@@ -121,16 +146,7 @@ def read_routines(path: Path) -> dict[str, Routine]:
             continue
         sleep_text = str(entry.get("sleep", ""))
         bath = str(entry.get("bath", "泡澡"))
-        session = _clock_of(
-            sleep_text,
-            (r"(\d{1,2})\s*点半?(?:左右)?(?:前后)?[^；。]*?睡", r"(\d{1,2})\s*点[^；。]*?睡"),
-            time(23, 0),
-        )
-        wake = _clock_of(
-            sleep_text,
-            (r"(\d{1,2})\s*点半?\s*起", r"(\d{1,2})\s*点[^；。]*?起"),
-            time(7, 0),
-        )
+        session, wake = _sleep_and_wake(sleep_text)
         out[character_id] = Routine(
             sleep_text=sleep_text,
             bath=bath,
@@ -143,7 +159,13 @@ def read_routines(path: Path) -> dict[str, Routine]:
 
 
 def _seed(user_id: str, character_id: str, day: date) -> int:
-    return abs(hash((user_id, character_id, day.isoformat()))) % (2**31)
+    """同一（用户, 角色, 日期）永远同一个种子。
+
+    不能用内置 `hash()`：字符串哈希每个进程加盐，换个进程同一天就排得不一样，
+    测试也会时过时不过。
+    """
+    digest = hashlib.sha256(f"{user_id}|{character_id}|{day.isoformat()}".encode()).digest()
+    return int.from_bytes(digest[:4], "big") % (2**31)
 
 
 def _live_of(world: World | None, character: Character, day: date) -> str | None:
@@ -229,6 +251,14 @@ class Schedules:
                 self._db.execute(
                     "ALTER TABLE schedules ADD COLUMN bath_told INTEGER NOT NULL DEFAULT 0"
                 )
+            if "bathed_told" not in columns:
+                self._db.execute(
+                    "ALTER TABLE schedules ADD COLUMN bathed_told INTEGER NOT NULL DEFAULT 0"
+                )
+            if "written_by" not in columns:
+                self._db.execute(
+                    "ALTER TABLE schedules ADD COLUMN written_by TEXT NOT NULL DEFAULT 'rules'"
+                )
 
     def close(self) -> None:
         with self._lock:
@@ -253,6 +283,7 @@ class Schedules:
             wake=time.fromisoformat(row["wake"]),
             bath_at=time.fromisoformat(row["bath_at"]),
             bath_until=time.fromisoformat(row["bath_until"]),
+            written_by=row["written_by"] if "written_by" in row.keys() else "rules",
         )
 
     def ensure(self, user_id: str, character_id: str, timezone: str) -> Plan | None:
@@ -287,6 +318,105 @@ class Schedules:
             )
         return planned
 
+    def routine_text(self, character_id: str) -> str | None:
+        """给模型的作息原文（她几点睡、几点起、洗澡的小习惯）。"""
+        routine = self._routines.get(character_id)
+        if routine is None:
+            return None
+        return f"{routine.sleep_text} {'泡澡' if routine.bath == '泡澡' else '淋浴'}。{routine.habit}"
+
+    BATH_WORDS = ("泡澡", "洗澡", "泡汤", "お風呂", "シャワー", "浴缸")
+    """模型不该写的：洗澡另有安排（`bath_at`–`bath_until`），写进来会变成两套真相。"""
+
+    def sanitize(
+        self, character_id: str, entries: Sequence[tuple[str, str]], sleep: time, wake: time
+    ) -> list[tuple[str, str]] | None:
+        """把模型写的行程收拾干净：去掉洗澡、不点别人的名、不越过睡觉时间。
+
+        剩下的不足三段就整份不用（退回规则版）。
+        """
+        out: list[tuple[str, str]] = []
+        for when, what in entries:
+            if any(word in what for word in self.BATH_WORDS):
+                continue
+            # 全名和名都要挡：模型常写「円香」而不是「樋口円香」
+            for other_id, other in self._characters.items():
+                if other_id == character_id:
+                    continue
+                for token in (other.name, other.name[2:]):
+                    if len(token) >= 2 and token in what:
+                        what = what.replace(token, "同组合的人")
+            start_end = re.match(r"(\d{2}):(\d{2})[–-](\d{2}):(\d{2})", when)
+            if start_end is None:
+                continue
+            # 一天的时间轴从起床算起：跨过午夜的时间加 24 小时，这样「22:30–00:20」
+            # 和「00:10 睡」才比得了大小（以前按 sleep < wake 判，凌晨睡的反而漏了）。
+            wake_min = wake.hour * 60 + wake.minute
+            sleep_min = sleep.hour * 60 + sleep.minute
+            if sleep_min <= wake_min:
+                sleep_min += 24 * 60
+            start_min = int(start_end.group(1)) * 60 + int(start_end.group(2))
+            end_min = int(start_end.group(3)) * 60 + int(start_end.group(4))
+            if start_min < wake_min:
+                start_min += 24 * 60
+            if end_min < start_min:
+                end_min += 24 * 60
+            if start_min >= sleep_min:
+                continue
+            end_min = min(end_min, sleep_min)
+            if end_min <= start_min:
+                continue
+            out.append((
+                f"{start_min % 1440 // 60:02d}:{start_min % 60:02d}"
+                f"–{end_min % 1440 // 60:02d}:{end_min % 60:02d}",
+                what.strip(),
+            ))
+        return out if len(out) >= 3 else None
+
+    def put_model_plan(
+        self, user_id: str, character_id: str, day: date, entries: Sequence[tuple[str, str]]
+    ) -> Plan | None:
+        """把模型写的行程写进表里；作息（睡、起、洗澡）仍按 routines 的来。
+
+        模型只管「几点到几点在做什么」，睡觉和洗澡这种会被别的功能读到的东西不交给它。
+        """
+        character = self._characters.get(character_id)
+        routine = self._routines.get(character_id)
+        if character is None or routine is None:
+            return None
+        base = self.plan(user_id, character_id, day) or self.ensure(user_id, character_id, "Asia/Tokyo")
+        if base is None:
+            return None
+        cleaned = self.sanitize(character_id, entries, base.sleep, base.wake)
+        if cleaned is None:
+            return None
+        entries = cleaned
+        plan = Plan(
+            day=day,
+            entries=tuple(entries),
+            live=base.live,
+            sleep=base.sleep,
+            wake=base.wake,
+            bath_at=base.bath_at,
+            bath_until=base.bath_until,
+            written_by="model",
+        )
+        with self._lock, self._db:
+            self._db.execute(
+                "INSERT OR REPLACE INTO schedules"
+                " (user_id, character_id, day, entries, sleep, bath_at, bath_until, wake,"
+                "  generated_at, bath_told, written_by)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 'model')",
+                (
+                    user_id, character_id, day.isoformat(),
+                    json.dumps(plan.entries, ensure_ascii=False),
+                    plan.sleep.isoformat(), plan.bath_at.isoformat(),
+                    plan.bath_until.isoformat(), plan.wake.isoformat(),
+                    self._clock().isoformat(),
+                ),
+            )
+        return plan
+
     def forget(self, user_id: str, character_id: str, day: date) -> None:
         """把那天排好的丢掉，下次 `ensure` 重排一份（开发接口用）。"""
         with self._lock, self._db:
@@ -294,6 +424,43 @@ class Schedules:
                 "DELETE FROM schedules WHERE user_id = ? AND character_id = ? AND day = ?",
                 (user_id, character_id, day.isoformat()),
             )
+
+    def _without_now(self, plan: Plan, clock: time) -> tuple[tuple[str, str], ...]:
+        """去掉覆盖当前这一刻的那一段：洗澡时别让她念出「21:00 洗澡」。"""
+        kept: list[tuple[str, str]] = []
+        for when, doing in plan.entries:
+            found = re.match(r"(\d{1,2}):(\d{2})[–-](\d{1,2}):(\d{2})", when)
+            if found is not None:
+                start = time(int(found.group(1)), int(found.group(2)))
+                end = time(int(found.group(3)), int(found.group(4)))
+                if _between(clock, start, end):
+                    continue
+            kept.append((when, doing))
+        return tuple(kept) if kept else plan.entries
+
+    def just_out_of_bath(self, user_id: str, character_id: str, timezone: str) -> bool:
+        """是不是刚洗完（洗完那一刻起 20 分钟内，且这一段还没说过）。"""
+        plan = self.ensure(user_id, character_id, timezone)
+        if plan is None:
+            return False
+        here = self._clock().astimezone(ZoneInfo(timezone)).time()
+        until = (datetime.combine(plan.day, plan.bath_until) + BATHED_GRACE).time()
+        if not _between(here, plan.bath_until, until):
+            return False
+        with self._lock, self._db:
+            row = self._db.execute(
+                "SELECT bathed_told FROM schedules"
+                " WHERE user_id = ? AND character_id = ? AND day = ?",
+                (user_id, character_id, plan.day.isoformat()),
+            ).fetchone()
+            if row is None or row["bathed_told"]:
+                return False
+            self._db.execute(
+                "UPDATE schedules SET bathed_told = 1"
+                " WHERE user_id = ? AND character_id = ? AND day = ?",
+                (user_id, character_id, plan.day.isoformat()),
+            )
+        return True
 
     def now(self, user_id: str, character_id: str, timezone: str) -> tuple[str, str]:
         """她现在在干嘛：("sleeping" | "bathing" | "working" | "free", 一句人话)。"""
@@ -342,8 +509,15 @@ class Schedules:
         if plan is None:
             return []
         state, what = self.now(user_id, character_id, timezone)
-        lines = ["# 她的这一天", f"现在的状态：{what or state}。"]
-        lines.append("今天的安排：" + "；".join(f"{when} {doing}" for when, doing in plan.entries) + "。")
+        if state == "bathing":
+            # 洗澡这件事只由 engine 的洗澡规则说一次。这里再写「在洗澡」，两套说法会打架：
+            # 模型一会儿说刚洗完、一会儿说还在洗（2026-10-28 实测）。
+            lines = ["# 她的这一天", "现在的状态：手机不在手边，过一会儿才看得到消息。"]
+            shown = self._without_now(plan, self._clock().astimezone(ZoneInfo(timezone)).time())
+        else:
+            lines = ["# 她的这一天", f"现在的状态：{what or state}。"]
+            shown = plan.entries
+        lines.append("今天的安排：" + "；".join(f"{when} {doing}" for when, doing in shown) + "。")
         if plan.live is not None:
             lines.append(f"今天是她的演出日：{plan.live}。")
         lines.append("被问到在做什么时，照这个说，允许有出入，不必逐条背。")

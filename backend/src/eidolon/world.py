@@ -25,8 +25,10 @@ too long.
 """
 
 import json
+import tomllib
 from collections.abc import Sequence
-from dataclasses import asdict, dataclass
+from collections.abc import Mapping
+from dataclasses import asdict, dataclass, field, replace
 from datetime import date
 from pathlib import Path
 from typing import Literal
@@ -172,6 +174,9 @@ class World:
     releases: tuple[Release, ...] = ()
     songs: tuple[Song, ...] = ()
     lives: tuple[Live, ...] = ()
+    birthdays: Mapping[str, tuple[int, int]] = field(default_factory=dict)
+    """Her birthday as (month, day), by her full name (fork, `characters/birthdays.toml`):
+    the only way one idol knows another's, since her own facts hold only hers."""
 
     def idol(self, name: str) -> Idol | None:
         return next((idol for idol in self.idols if idol.name == name), None)
@@ -305,8 +310,41 @@ class World:
         if self.is_staff(name):
             return self._setting_prompt(staff=True)
         return "\n\n".join(
-            [self._setting_prompt(), self._songs_prompt(name, today), self._lives_prompt(name, today)]
+            [
+                self._setting_prompt(),
+                self._songs_prompt(name, today),
+                self._lives_prompt(name, today),
+                self._birthdays_prompt(today),
+            ]
         )
+
+    def _birthdays_prompt(self, today: date) -> str:
+        """谁的生日是哪天，以及最近几天有没有人过生日（fork）。
+
+        以前这数据只在她自己的资料里，问到别人的生日只好瞎猜——真乃把円香的生日
+        说成了制作人的生日。这里一次列全，答不上来的就说记不清。
+        """
+        if not self.birthdays:
+            return ""
+        ordered = sorted(self.birthdays.items(), key=lambda item: item[1])
+        listed = "、".join(f"{her_name} {month}/{day}" for her_name, (month, day) in ordered)
+        lines = [
+            "# 纪念日",
+            f"283 全员的生日：{listed}。",
+        ]
+        soon: list[str] = []
+        for her_name, (month, day) in ordered:
+            offset = _days_around(today, month, day)
+            if offset is None or not -3 <= offset <= 7:
+                continue
+            said = {-1: "昨天", 0: "今天", 1: "明天"}.get(offset)
+            if said is None:
+                said = f"{offset} 天后" if offset > 0 else f"{-offset} 天前"
+            soon.append(f"{her_name}的生日是{said}（{month}/{day}）")
+        if soon:
+            lines.append("最近：" + "；".join(soon) + "。")
+        lines.append("被问到谁的生日，照这上面说；这上面没有的人，就说记不清，别猜。")
+        return "\n".join(lines)
 
     def _lives_prompt(self, name: str, today: date) -> str:
         lives = self.lives_of(name)
@@ -468,6 +506,41 @@ def world_path(characters_path: Path) -> Path:
     return characters_path.parent / WORLD_FILE
 
 
+def _days_around(today: date, month: int, day: int) -> int | None:
+    """离今天最近的「`today` 那年的 `month`/`day`」差几天：负数是在前面，正数在后面。"""
+    best: int | None = None
+    for year in (today.year - 1, today.year, today.year + 1):
+        try:
+            when = date(year, month, day)
+        except ValueError:  # 2 月 29 日遇上平年
+            continue
+        offset = (when - today).days
+        if best is None or abs(offset) < abs(best):
+            best = offset
+    return best
+
+
+def load_birthdays(path: Path) -> dict[str, tuple[int, int]]:
+    """`characters/birthdays.toml`：名字 → (月, 日)。文件不在就是空的。"""
+    try:
+        data = tomllib.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {}
+    except (OSError, tomllib.TOMLDecodeError):
+        return {}
+    out: dict[str, tuple[int, int]] = {}
+    for name, value in data.items():
+        if not isinstance(value, str):
+            continue
+        try:
+            month, day = (int(part) for part in value.split("-"))
+        except ValueError:
+            continue
+        if 1 <= month <= 12 and 1 <= day <= 31:
+            out[name] = (month, day)
+    return out
+
+
 def load_world(path: Path) -> World | None:
     """The data file at `path`; None if there is none. Raises WorldError if it is broken."""
     try:
@@ -477,6 +550,7 @@ def load_world(path: Path) -> World | None:
     except (json.JSONDecodeError, UnicodeDecodeError) as e:
         raise WorldError(f"世界设定资料 {path} 格式有误：{e}") from None
     try:
-        return World.from_json(data)
+        world = World.from_json(data)
+        return replace(world, birthdays=load_birthdays(path.with_name("birthdays.toml")))
     except (KeyError, TypeError, ValueError) as e:
         raise WorldError(f"世界设定资料 {path} 缺少或写错了字段：{e!r}（重新运行 eidolon world sync）") from None

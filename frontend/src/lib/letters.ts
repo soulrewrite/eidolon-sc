@@ -2,7 +2,7 @@
 // the announcements one evening. Only a character he is close to writes them, one every few
 // days, in the evening — or on a day that calls for it.
 
-import { api, expectNoContent, json } from "@/lib/api";
+import { api, expectNoContent, json, type Character } from "@/lib/api";
 
 /** One letter as the user reads it: her words, Japanese on the paper with the Chinese under
  * it, the call background showing through, and her autograph at the end. */
@@ -230,6 +230,40 @@ export function letterDay(at: string): string {
 }
 
 /** Her letters, the latest first. */
+/** 公告弹窗里最多放几封；更早的去设置·统计里看。 */
+export const ANNOUNCED_LETTERS = 3;
+
+/** 公告弹窗里放的那几封：`letters` 是新的在前（`/api/letters` 就按投递时间倒序）。 */
+export function announced(letters: Letter[], shown = ANNOUNCED_LETTERS): Letter[] {
+  return letters.slice(0, shown);
+}
+
+/** 公告里没放下几封。 */
+export function heldBack(letters: Letter[], shown = ANNOUNCED_LETTERS): number {
+  return Math.max(0, letters.length - shown);
+}
+
+/** 统计页的信按角色分组：角色顺序照偶像表，组内新的在前。 */
+export function groupLetters(
+  letters: Letter[],
+  characters: Character[],
+): { key: string; character: Character | undefined; letters: Letter[] }[] {
+  const byId = new Map(characters.map((c) => [c.id, c]));
+  const grouped = new Map<string, Letter[]>();
+  for (const letter of letters) {
+    const hers = grouped.get(letter.character_id) ?? [];
+    hers.push(letter);
+    grouped.set(letter.character_id, hers);
+  }
+  return [...grouped.entries()]
+    .sort(([a], [b]) => {
+      const left = byId.get(a)?.idol_id ?? Number.MAX_SAFE_INTEGER;
+      const right = byId.get(b)?.idol_id ?? Number.MAX_SAFE_INTEGER;
+      return left - right;
+    })
+    .map(([id, hers]) => ({ key: id, character: byId.get(id), letters: hers }));
+}
+
 export async function listLetters(): Promise<Letter[]> {
   return (await json<{ letters: Letter[] }>(await api("/api/letters"))).letters;
 }
